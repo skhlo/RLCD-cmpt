@@ -121,50 +121,6 @@ describe("/blackhole-recall command", () => {
     expect(sentMessages[0].content).toContain("login bug");
   });
 
-  it("preserves exact output for a dotted-filename literal", async () => {
-    const { pi, handlerMap, sentMessages, createSessionFile } = createMockEnvironment();
-    registerVccRecallCommand(pi as any);
-
-    const sessionFile = createSessionFile([
-      { role: "user", content: "saved observer.ts" },
-      { role: "assistant", content: "saved observerXts" },
-    ]);
-    const ctx: any = {
-      sessionManager: {
-        getSessionFile: vi.fn(() => sessionFile),
-        getBranch: vi.fn(() => [{ id: "m0" }, { id: "m1" }]),
-      },
-    };
-
-    await handlerMap.get("blackhole-recall")!("observer.ts", ctx);
-
-    expect(sentMessages[0].content).toBe(
-      '1 matches for "observer.ts":\n\n#0 [user] saved observer.ts',
-    );
-  });
-
-  it("preserves exact output for a question-mark pattern", async () => {
-    const { pi, handlerMap, sentMessages, createSessionFile } = createMockEnvironment();
-    registerVccRecallCommand(pi as any);
-
-    const sessionFile = createSessionFile([
-      { role: "user", content: "color choice" },
-      { role: "assistant", content: "colour choice" },
-    ]);
-    const ctx: any = {
-      sessionManager: {
-        getSessionFile: vi.fn(() => sessionFile),
-        getBranch: vi.fn(() => [{ id: "m0" }, { id: "m1" }]),
-      },
-    };
-
-    await handlerMap.get("blackhole-recall")!("colou?r", ctx);
-
-    expect(sentMessages[0].content).toBe(
-      '2 matches for "colou?r":\n\n#0 [user] color choice\n\n#1 [assistant] colour choice',
-    );
-  });
-
   it("returns empty when no matches found", async () => {
     const { pi, handlerMap, sentMessages, createSessionFile } = createMockEnvironment();
     registerVccRecallCommand(pi as any);

@@ -408,7 +408,7 @@ async function omRecall(memoryId: string, ctx: any, maxChars = DEFAULT_RECALL_RE
 // ── Unified recall tool ──────────────────────────────────────────────────
 
 export function registerRecallTool(
-  pi: ExtensionAPI,
+  pi: Pick<ExtensionAPI, "registerTool">,
   omRuntime?: { config?: { recallResponseMaxChars?: number } },
 ): void {
   // Resolved per call (not once at registration): omRuntime.config is a live

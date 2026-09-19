@@ -50,7 +50,9 @@ async function augmentWithObservations(
   return output;
 }
 
-export const registerVccRecallCommand = (pi: ExtensionAPI) => {
+export const registerVccRecallCommand = (
+  pi: Pick<ExtensionAPI, "registerCommand" | "sendMessage">,
+) => {
   pi.registerCommand("blackhole-recall", {
     description:
       "Search session history. Defaults to active lineage. Usage: /blackhole-recall <query> [page:N] [scope:all] [mode:file|touched]",
@@ -96,9 +98,9 @@ export const registerVccRecallCommand = (pi: ExtensionAPI) => {
       // Parse page:N from args
       const pageMatch = parsed.text.match(/\bpage:(\d+)\b/i);
       const page = pageMatch ? Math.max(1, parseInt(pageMatch[1], 10)) : 1;
-      const query = parsed.text.replace(/\bpage:\d+\b/i, "").trim();
+      const queryPlan = planSearchQuery(parsed.text.replace(/\bpage:\d+\b/i, ""));
 
-      if (!query) {
+      if (!queryPlan) {
         const { rendered } = loadAllMessages(sessionFile, false, lineageEntryIds);
         const recent = rendered.slice(-DEFAULT_RECENT);
         const base = (parsed.scope === "all" ? "Scope: all\n\n" : "") + formatRecallOutput(recent);
@@ -110,9 +112,7 @@ export const registerVccRecallCommand = (pi: ExtensionAPI) => {
         return;
       }
 
-      const queryPlan = planSearchQuery(query);
-      if (!queryPlan) return;
-
+      const query = queryPlan.query;
       const { rendered, rawMessages } = loadAllMessages(sessionFile, false, lineageEntryIds);
       const {
         hits: allResults,

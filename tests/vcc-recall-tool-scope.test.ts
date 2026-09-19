@@ -4,21 +4,21 @@ import { tmpdir } from "os";
 import { join } from "path";
 import { registerRecallTool } from "../src/tools/recall.js";
 
-const makeSession = (
-  messages: Array<{ role: "user" | "assistant"; content: string }> = [
-    { role: "user", content: "active lineage token" },
-    { role: "user", content: "off lineage secret" },
-  ],
-) => {
+const makeSession = () => {
   const dir = mkdtempSync(join(tmpdir(), "pi-vcc-recall-scope-"));
   const file = join(dir, "session.jsonl");
-  const lines = messages.map((message, index) =>
+  const lines = [
     JSON.stringify({
       type: "message",
-      id: `m${index + 1}`,
-      message,
+      id: "m1",
+      message: { role: "user", content: "active lineage token" },
     }),
-  );
+    JSON.stringify({
+      type: "message",
+      id: "m2",
+      message: { role: "user", content: "off lineage secret" },
+    }),
+  ];
   writeFileSync(file, lines.join("\n") + "\n", "utf8");
   return { dir, file };
 };
@@ -78,38 +78,6 @@ describe("vcc_recall scope", () => {
       const all = await invoke(tool, file, { expand: [1], scope: "all" });
       expect(all).toContain("Scope: all");
       expect(all).toContain("#1 [user] off lineage secret");
-    } finally {
-      rmSync(dir, { recursive: true, force: true });
-    }
-  });
-});
-
-describe("recall tool query planning", () => {
-  it("preserves exact output for a dotted-filename literal", async () => {
-    const { dir, file } = makeSession([
-      { role: "user", content: "saved observer.ts" },
-      { role: "assistant", content: "saved observerXts" },
-    ]);
-    try {
-      const output = await invoke(register(), file, { query: "observer.ts" }, ["m1", "m2"]);
-
-      expect(output).toBe('1 matches for "observer.ts":\n\n#0 [user] saved observer.ts');
-    } finally {
-      rmSync(dir, { recursive: true, force: true });
-    }
-  });
-
-  it("preserves exact output for a question-mark pattern", async () => {
-    const { dir, file } = makeSession([
-      { role: "user", content: "color choice" },
-      { role: "assistant", content: "colour choice" },
-    ]);
-    try {
-      const output = await invoke(register(), file, { query: "colou?r" }, ["m1", "m2"]);
-
-      expect(output).toBe(
-        '2 matches for "colou?r":\n\n#0 [user] color choice\n\n#1 [assistant] colour choice',
-      );
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }

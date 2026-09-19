@@ -39,41 +39,116 @@ const messages: Message[] = [
   } as any,
 ];
 
+const requireQueryPlan = (query: string) => {
+  const plan = planSearchQuery(query);
+  if (!plan) throw new Error(`expected a query plan for ${query}`);
+  return plan;
+};
+
+const requireOnlyTerm = (query: string) => {
+  const plan = requireQueryPlan(query);
+  if (plan.terms.length !== 1) throw new Error(`expected one search term for ${query}`);
+  const [term] = plan.terms;
+  if (!term) throw new Error(`expected a compiled search term for ${query}`);
+  return term;
+};
+
 describe("planSearchQuery", () => {
-  it("keeps dotted filenames literal", () => {
-    const plan = planSearchQuery("observer.ts");
+  it.each([
+    {
+      label: "an ordinary term",
+      query: "login",
+      expected: {
+        query: "login",
+        intent: "literal",
+        eligibleForReranking: true,
+        allTermIntents: ["literal"],
+        searchTerms: ["login"],
+      },
+    },
+    {
+      label: "a dotted filename",
+      query: "  observer.ts  ",
+      expected: {
+        query: "observer.ts",
+        intent: "literal",
+        eligibleForReranking: true,
+        allTermIntents: ["literal"],
+        searchTerms: ["observer.ts"],
+      },
+    },
+    {
+      label: "an operator-bearing term",
+      query: "login|auth",
+      expected: {
+        query: "login|auth",
+        intent: "pattern",
+        eligibleForReranking: false,
+        allTermIntents: ["pattern"],
+        searchTerms: ["login|auth"],
+      },
+    },
+    {
+      label: "a question-mark term",
+      query: "colou?r",
+      expected: {
+        query: "colou?r",
+        intent: "pattern",
+        eligibleForReranking: false,
+        allTermIntents: ["pattern"],
+        searchTerms: ["colou?r"],
+      },
+    },
+    {
+      label: "mixed literal and pattern terms",
+      query: "observer.ts login|auth",
+      expected: {
+        query: "observer.ts login|auth",
+        intent: "pattern",
+        eligibleForReranking: false,
+        allTermIntents: ["literal", "pattern"],
+        searchTerms: ["observer.ts", "login|auth"],
+      },
+    },
+  ])("classifies $label as one coherent query plan", ({ query, expected }) => {
+    const plan = requireQueryPlan(query);
 
-    expect(plan?.intent).toBe("literal");
-    expect(plan?.eligibleForReranking).toBe(true);
-    expect(plan?.terms).toHaveLength(1);
-    expect(plan?.terms[0]?.intent).toBe("literal");
-    expect(plan?.terms[0]?.pattern.test("observer.ts")).toBe(true);
-    expect(plan?.terms[0]?.pattern.test("observerXts")).toBe(false);
+    expect({
+      query: plan.query,
+      intent: plan.intent,
+      eligibleForReranking: plan.eligibleForReranking,
+      allTermIntents: plan.allTerms.map((term) => term.intent),
+      searchTerms: plan.terms.map((term) => term.term),
+    }).toEqual(expected);
   });
 
-  it("keeps operator-bearing terms as patterns", () => {
-    const plan = planSearchQuery("login|auth");
+  it.each([
+    {
+      label: "a dotted filename literally",
+      query: "observer.ts",
+      samples: ["observer.ts", "observerXts"],
+      expected: [true, false],
+    },
+    {
+      label: "an alternation as a pattern",
+      query: "login|auth",
+      samples: ["login", "auth", "logout"],
+      expected: [true, true, false],
+    },
+    {
+      label: "a question mark as a pattern operator",
+      query: "colou?r",
+      samples: ["color", "colour", "colouur"],
+      expected: [true, true, false],
+    },
+  ])("compiles $label", ({ query, samples, expected }) => {
+    const term = requireOnlyTerm(query);
 
-    expect(plan?.intent).toBe("pattern");
-    expect(plan?.eligibleForReranking).toBe(false);
-    expect(plan?.terms).toHaveLength(1);
-    expect(plan?.terms[0]?.intent).toBe("pattern");
-    expect(plan?.terms[0]?.pattern.test("login")).toBe(true);
-    expect(plan?.terms[0]?.pattern.test("auth")).toBe(true);
-  });
-
-  it("keeps question marks as pattern operators", () => {
-    const plan = planSearchQuery("colou?r");
-
-    expect(plan?.intent).toBe("pattern");
-    expect(plan?.eligibleForReranking).toBe(false);
-    expect(plan?.terms[0]?.pattern.test("color")).toBe(true);
-    expect(plan?.terms[0]?.pattern.test("colour")).toBe(true);
+    expect(samples.map((sample) => term.pattern.test(sample))).toEqual(expected);
   });
 
   it("preserves the detailed result structure through a query plan", () => {
-    const plan = planSearchQuery("login");
-    if (!plan) throw new Error("expected a query plan");
+    const plan = requireQueryPlan("login");
 
     expect(searchEntriesDetailedWithPlan(entries, messages, plan)).toEqual({
       hits: [
