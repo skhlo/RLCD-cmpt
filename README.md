@@ -1,4 +1,15 @@
-# pi-blackhole
+# RLCD-cmpt
+
+A design-stage fork of [pi-blackhole](https://github.com/k0valik/pi-blackhole),
+exploring Jev's RLCD-trained judgments for session-memory retrieval. Runtime code
+is still upstream `v0.5.5`; the Jev integration is not implemented or installed.
+
+Start with the [refined retrieval-first proposal](work_docs/proposals/retrieval-first-final.md)
+and the [original proposals and runnable HTML prototypes](work_docs/proposals/README.md).
+The upstream documentation below describes the existing Blackhole runtime, not
+completed RLCD-cmpt features. The inherited package name remains `pi-blackhole`.
+
+## Upstream pi-blackhole
 
 **Deterministic compaction + session-aware observational memory for [Pi](https://github.com/earendil-works/pi) — in one unified extension.**
 

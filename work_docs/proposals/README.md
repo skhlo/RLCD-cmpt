@@ -1,9 +1,13 @@
 # RLCD-cmpt design proposals
 
-This directory records the design exploration for the Blackhole fork. The first
-commit preserves the original proposals and runnable prototypes; a separate
-follow-up records the selected, refined retrieval-first direction. No Jev
-integration is implemented by this archive.
+Start with the [final retrieval-first proposal](retrieval-first-final.md). It owns
+the selected v1 scope, implementation contracts, evaluation gates, and corrections
+to the original alternatives below. It selects a smaller C: query-aware recall
+reranking without retention changes or birth-time grading.
+
+The original six artifacts were preserved in the first fork-specific commit; the
+refined proposal follows separately. No Jev integration is implemented by these
+documentation commits, and no installed settings have changed.
 
 ## Original exploration
 
