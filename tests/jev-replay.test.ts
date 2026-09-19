@@ -6,7 +6,6 @@ import {
   JEV_EVALUATION_THRESHOLDS,
   createJevEvaluationPlan,
   evaluateJevReplay,
-  type JevEvaluationApproval,
 } from "../src/evaluation/jev-replay.js";
 import {
   readReplayFixture,
@@ -14,10 +13,11 @@ import {
   type ReplayInputPaths,
   type ReplayPartition,
 } from "../src/evaluation/replay-fixture.js";
-import type {
-  JevTransport,
-  JevTransportRequest,
-  JevTransportResponse,
+import {
+  TypeSafeHttpError,
+  type JevTransport,
+  type JevTransportRequest,
+  type JevTransportResponse,
 } from "../src/evaluation/typesafe-http.js";
 
 interface FixtureFiles {
@@ -32,7 +32,12 @@ const message = (id: string, text: string): Record<string, unknown> => ({
   message: { role: "user", content: text },
 });
 
-const writeFixture = (partition: ReplayPartition, suffix: string): FixtureFiles => {
+const writeFixture = (
+  partition: ReplayPartition,
+  suffix: string,
+  ownerQuery = "which team owns amber release marker",
+  answerableQueryCount = 1,
+): FixtureFiles => {
   const dir = mkdtempSync(join(tmpdir(), `blackhole-jev-${suffix}-`));
   const paths = {
     corpus: join(dir, "corpus.jsonl"),
@@ -72,12 +77,16 @@ const writeFixture = (partition: ReplayPartition, suffix: string): FixtureFiles 
       fixtureRevision: revision,
       partition,
       queries: [
-        {
-          id: "owner",
-          text: "which team owns amber release marker",
+        ...Array.from({ length: answerableQueryCount }, (_, index) => ({
+          id: index === 0 ? "owner" : `owner-${index + 1}`,
+          text: ownerQuery,
           category: "term-overlap-distractor",
+        })),
+        {
+          id: "no-answer",
+          text: "quartz rotation owner",
+          category: "no-answer-adversarial",
         },
-        { id: "no-answer", text: "quartz rotation owner", category: "no-answer" },
       ],
     })}\n`,
   );
@@ -88,12 +97,12 @@ const writeFixture = (partition: ReplayPartition, suffix: string): FixtureFiles 
       fixtureRevision: revision,
       partition,
       labels: [
-        {
-          queryId: "owner",
+        ...Array.from({ length: answerableQueryCount }, (_, index) => ({
+          queryId: index === 0 ? "owner" : `owner-${index + 1}`,
           classification: "answerable",
           answerEntryIds: ["z-answer"],
           reviewed: true,
-        },
+        })),
         { queryId: "no-answer", classification: "no-answer", reviewed: true },
       ],
     })}\n`,
@@ -144,14 +153,6 @@ const implementation = {
   executableSha256: "0".repeat(64),
 } as const;
 
-const approval: JevEvaluationApproval = {
-  evidenceSha256: "a".repeat(64),
-  transmissionApproved: true,
-  privateAccountTermsAccepted: true,
-  localRawEvidenceRetentionDays: 7,
-  localRetentionExtensionReference: null,
-};
-
 const withFixtures = async <T>(
   run: (tuning: FixtureFiles, heldOut: FixtureFiles) => Promise<T> | T,
 ): Promise<T> => {
@@ -164,6 +165,27 @@ const withFixtures = async <T>(
     rmSync(heldOut.dir, { recursive: true });
   }
 };
+
+const evaluateScriptedHeldOut = async () =>
+  await withFixtures(async (tuning, heldOut) => {
+    const plan = createJevEvaluationPlan({
+      tuningFixture: tuning.fixture,
+      heldOutInputSha256: heldOut.fixture.digests,
+      inputKind: "synthetic",
+      implementation,
+    });
+    let calls = 0;
+    const report = await evaluateJevReplay(heldOut.fixture, plan, {
+      phase: "held-out",
+      transport: scriptedTransport((request) => {
+        calls++;
+        return scriptedResponse(request);
+      }),
+      apiKey: "scripted-key",
+      implementation,
+    });
+    return { report, calls };
+  });
 
 describe("Jev evaluation plan", () => {
   it("freezes contract, proposed bounds, thresholds, price, and both input provenances", async () => {
@@ -217,8 +239,121 @@ describe("Jev evaluation plan", () => {
 });
 
 describe("bounded Jev replay", () => {
-  it("reranks every candidate from a complete response and reports a pending real review", async () => {
+  it("dispatches one scripted request for each eligible case", async () => {
+    const { calls } = await evaluateScriptedHeldOut();
+
+    expect(calls).toBe(2);
+  });
+
+  it("reranks every candidate from a complete response", async () => {
+    const { report } = await evaluateScriptedHeldOut();
+
+    expect(report.cases.find(({ queryId }) => queryId === "owner")).toMatchObject({
+      lexical: { outcome: "rank-miss", bestKnownAnswerRank: 6 },
+      semantic: {
+        result: "reranked",
+        candidateEntryIds: ["z-answer", "d1", "d2", "d3", "d4", "d5"],
+        bestKnownAnswerRank: 1,
+        usage: { inputTokens: 320, outputTokens: 20 },
+      },
+    });
+  });
+
+  it("reports semantic comparison metrics from complete judgments", async () => {
+    const { report } = await evaluateScriptedHeldOut();
+
+    expect(report.comparison).toMatchObject({
+      candidateMisses: 0,
+      lexicalRankMisses: 1,
+      semanticRankMisses: 0,
+      promotionsIntoTop5: 1,
+      firstPageRegressions: [],
+      disagreements: [expect.objectContaining({ queryId: "owner", reviewStatus: "pending" })],
+    });
+  });
+
+  it("does not accept a transport's self-declared native evidence label", async () => {
     await withFixtures(async (tuning, heldOut) => {
+      const plan = createJevEvaluationPlan({
+        tuningFixture: tuning.fixture,
+        heldOutInputSha256: heldOut.fixture.digests,
+        inputKind: "synthetic",
+        implementation,
+      });
+      const report = await evaluateJevReplay(heldOut.fixture, plan, {
+        phase: "held-out",
+        transport: scriptedTransport((request) => scriptedResponse(request), "native-api"),
+        apiKey: "scripted-key",
+        implementation,
+      });
+
+      expect(report.evidence).toMatchObject({
+        source: "scripted",
+        nativeApiRequestsDispatched: false,
+      });
+    });
+  });
+
+  it("classifies a scripted replay as non-native evidence", async () => {
+    const { report } = await evaluateScriptedHeldOut();
+
+    expect(report.evidence).toMatchObject({
+      source: "scripted",
+      nativeApiRequestsDispatched: false,
+      estimatorCalibrationAccepted: false,
+    });
+  });
+
+  it("keeps empirical gates blocked for scripted synthetic judgments", async () => {
+    const { report } = await evaluateScriptedHeldOut();
+
+    expect(report.gates).toMatchObject({
+      status: "BLOCKED",
+      reasons: expect.arrayContaining([
+        "scripted-transport-is-not-empirical-evidence",
+        "synthetic-input-cannot-pass-empirical-gates",
+        "review-evidence-missing",
+      ]),
+    });
+  });
+
+  it("accepts complete timely no-answer judgments as category evidence", async () => {
+    const { report } = await evaluateScriptedHeldOut();
+
+    expect(report.gates.reasons).not.toContain("no-answer-judgment-evidence-incomplete");
+  });
+
+  it("accepts complete timely adversarial judgments as category evidence", async () => {
+    const { report } = await evaluateScriptedHeldOut();
+
+    expect(report.gates.reasons).not.toContain("adversarial-judgment-evidence-incomplete");
+  });
+
+  it("blocks no-answer model evidence when an eligible judgment falls back", async () => {
+    await withFixtures(async (tuning, heldOut) => {
+      const plan = createJevEvaluationPlan({
+        tuningFixture: tuning.fixture,
+        heldOutInputSha256: heldOut.fixture.digests,
+        inputKind: "synthetic",
+        implementation,
+      });
+      const report = await evaluateJevReplay(heldOut.fixture, plan, {
+        phase: "held-out",
+        transport: scriptedTransport(() => {
+          throw new Error("offline scripted failure");
+        }),
+        apiKey: "scripted-key",
+        implementation,
+      });
+
+      expect(report.gates.reasons).toContain("no-answer-judgment-evidence-incomplete");
+    });
+  });
+
+  it("does not let overall 95% reliability hide missing no-answer evidence", async () => {
+    const tuning = writeFixture("tuning", "category-reliability-tuning", undefined, 20);
+    const heldOut = writeFixture("held-out", "category-reliability-held-out", undefined, 20);
+    try {
       const plan = createJevEvaluationPlan({
         tuningFixture: tuning.fixture,
         heldOutInputSha256: heldOut.fixture.digests,
@@ -230,43 +365,129 @@ describe("bounded Jev replay", () => {
         phase: "held-out",
         transport: scriptedTransport((request) => {
           calls++;
+          if (calls === 21) throw new Error("no-answer scripted failure");
           return scriptedResponse(request);
         }),
         apiKey: "scripted-key",
         implementation,
       });
-      const owner = report.cases.find((caseReport) => caseReport.queryId === "owner");
+
+      expect(report.operations).toMatchObject({
+        eligibleEvaluations: 21,
+        completeWithinDeadline: 20,
+      });
+      expect(20 / 21).toBeGreaterThanOrEqual(
+        JEV_EVALUATION_THRESHOLDS.completeWithinDeadlineRateMinimum,
+      );
+      expect(report.gates.reasons).not.toContain("reliability-gate-failed");
+      expect(report.gates.reasons).toContain("no-answer-judgment-evidence-incomplete");
+    } finally {
+      rmSync(tuning.dir, { recursive: true });
+      rmSync(heldOut.dir, { recursive: true });
+    }
+  });
+
+  it("blocks adversarial model evidence when an eligible judgment falls back", async () => {
+    await withFixtures(async (tuning, heldOut) => {
+      const plan = createJevEvaluationPlan({
+        tuningFixture: tuning.fixture,
+        heldOutInputSha256: heldOut.fixture.digests,
+        inputKind: "synthetic",
+        implementation,
+      });
+      const report = await evaluateJevReplay(heldOut.fixture, plan, {
+        phase: "held-out",
+        transport: scriptedTransport(() => {
+          throw new Error("offline scripted failure");
+        }),
+        apiKey: "scripted-key",
+        implementation,
+      });
+
+      expect(report.gates.reasons).toContain("adversarial-judgment-evidence-incomplete");
+    });
+  });
+
+  it("propagates caller cancellation and stops subsequent dispatch", async () => {
+    await withFixtures(async (tuning, heldOut) => {
+      const plan = createJevEvaluationPlan({
+        tuningFixture: tuning.fixture,
+        heldOutInputSha256: heldOut.fixture.digests,
+        inputKind: "synthetic",
+        implementation,
+      });
+      const caller = new AbortController();
+      let calls = 0;
+      const evaluation = evaluateJevReplay(heldOut.fixture, plan, {
+        phase: "held-out",
+        transport: scriptedTransport((request) => {
+          calls++;
+          caller.abort(new DOMException("caller cancelled", "AbortError"));
+          return scriptedResponse(request);
+        }),
+        apiKey: "scripted-key",
+        implementation,
+        signal: caller.signal,
+      });
+
+      await expect(evaluation).rejects.toMatchObject({ name: "AbortError" });
+      expect(calls).toBe(1);
+    });
+  });
+
+  it("treats an internal abort-like transport failure as whole-list fallback", async () => {
+    await withFixtures(async (tuning, heldOut) => {
+      const plan = createJevEvaluationPlan({
+        tuningFixture: tuning.fixture,
+        heldOutInputSha256: heldOut.fixture.digests,
+        inputKind: "synthetic",
+        implementation,
+      });
+      let calls = 0;
+      const report = await evaluateJevReplay(heldOut.fixture, plan, {
+        phase: "held-out",
+        transport: scriptedTransport(() => {
+          calls++;
+          throw new DOMException("internal abort", "AbortError");
+        }),
+        apiKey: "scripted-key",
+        implementation,
+      });
 
       expect(calls).toBe(2);
-      expect(owner).toMatchObject({
-        lexical: { outcome: "rank-miss", bestKnownAnswerRank: 6 },
-        semantic: {
-          result: "reranked",
-          candidateEntryIds: ["z-answer", "d1", "d2", "d3", "d4", "d5"],
-          bestKnownAnswerRank: 1,
-          usage: { inputTokens: 320, outputTokens: 20 },
-        },
+      expect(report.cases.find(({ queryId }) => queryId === "owner")?.semantic).toMatchObject({
+        result: "lexical-fallback",
+        fallbackReason: "transport-aborted",
+        candidateEntryIds: ["d1", "d2", "d3", "d4", "d5", "z-answer"],
       });
-      expect(report.comparison).toMatchObject({
-        candidateMisses: 0,
-        lexicalRankMisses: 1,
-        semanticRankMisses: 0,
-        promotionsIntoTop5: 1,
-        firstPageRegressions: [],
-        disagreements: [expect.objectContaining({ queryId: "owner", reviewStatus: "pending" })],
+    });
+  });
+
+  it("treats internal budget expiry as fallback and continues dispatch", async () => {
+    await withFixtures(async (tuning, heldOut) => {
+      const plan = createJevEvaluationPlan({
+        tuningFixture: tuning.fixture,
+        heldOutInputSha256: heldOut.fixture.digests,
+        inputKind: "synthetic",
+        implementation,
       });
-      expect(report.evidence).toMatchObject({
-        source: "scripted",
-        actualApiUsage: false,
-        estimatorCalibrationAccepted: false,
+      let calls = 0;
+      const report = await evaluateJevReplay(heldOut.fixture, plan, {
+        phase: "held-out",
+        transport: scriptedTransport(() => {
+          calls++;
+          throw new TypeSafeHttpError("deadline", "internal budget expired");
+        }),
+        apiKey: "scripted-key",
+        implementation,
       });
-      expect(report.gates).toMatchObject({
-        status: "BLOCKED",
-        reasons: expect.arrayContaining([
-          "scripted-transport-is-not-empirical-evidence",
-          "synthetic-input-cannot-pass-empirical-gates",
-          "review-evidence-missing",
-        ]),
+
+      expect(calls).toBe(2);
+      expect(report.cases.find(({ queryId }) => queryId === "owner")?.semantic).toMatchObject({
+        result: "lexical-fallback",
+        fallbackReason: "transport-deadline",
+        candidateEntryIds: ["d1", "d2", "d3", "d4", "d5", "z-answer"],
+        usageStatus: "unknown",
       });
     });
   });
@@ -300,6 +521,13 @@ describe("bounded Jev replay", () => {
       expect(report.operations).toMatchObject({
         attemptedRequests: 2,
         validJudgments: 0,
+        providerReportedUsageResponses: 0,
+        requestsWithUnknownUsage: 2,
+        providerReportedInputTokens: 0,
+        costs: {
+          completeProviderReportedInputCostUsd: null,
+          requestsWithUnknownCost: 2,
+        },
         failures: [
           { queryId: "owner", reason: "transport-failure" },
           { queryId: "no-answer", reason: "transport-failure" },
@@ -378,6 +606,72 @@ describe("bounded Jev replay", () => {
     });
   });
 
+  it("preserves complete lexical order when request preparation rejects a query field", async () => {
+    const tuning = writeFixture("tuning", "preparation-reject-tuning");
+    const heldOut = writeFixture(
+      "held-out",
+      "preparation-reject-held-out",
+      `which team owns amber release marker ${"x ".repeat(2_100)}`,
+    );
+    try {
+      const plan = createJevEvaluationPlan({
+        tuningFixture: tuning.fixture,
+        heldOutInputSha256: heldOut.fixture.digests,
+        inputKind: "synthetic",
+        implementation,
+      });
+      let calls = 0;
+      const report = await evaluateJevReplay(heldOut.fixture, plan, {
+        phase: "held-out",
+        transport: scriptedTransport((request) => {
+          calls++;
+          return scriptedResponse(request);
+        }),
+        apiKey: "scripted-key",
+        implementation,
+      });
+
+      expect(report.cases.find(({ queryId }) => queryId === "owner")?.semantic).toMatchObject({
+        result: "lexical-fallback",
+        fallbackReason: "preparation-query-field",
+        candidateEntryIds: ["d1", "d2", "d3", "d4", "d5", "z-answer"],
+      });
+      expect(calls).toBe(1);
+    } finally {
+      rmSync(tuning.dir, { recursive: true });
+      rmSync(heldOut.dir, { recursive: true });
+    }
+  });
+
+  it("does not dispatch a request whose preparation exhausts the deadline", async () => {
+    await withFixtures(async (tuning, heldOut) => {
+      const plan = createJevEvaluationPlan({
+        tuningFixture: tuning.fixture,
+        heldOutInputSha256: heldOut.fixture.digests,
+        inputKind: "synthetic",
+        implementation,
+      });
+      const clock = [0, 1_201, 1_201, 1_201, 1_201, 1_201];
+      let calls = 0;
+      const report = await evaluateJevReplay(heldOut.fixture, plan, {
+        phase: "held-out",
+        transport: scriptedTransport((request) => {
+          calls++;
+          return scriptedResponse(request);
+        }),
+        apiKey: "scripted-key",
+        implementation,
+        now: () => clock.shift() ?? 1_201,
+      });
+
+      expect(report.cases.find(({ queryId }) => queryId === "owner")?.semantic).toMatchObject({
+        result: "lexical-fallback",
+        fallbackReason: "preparation-deadline",
+      });
+      expect(calls).toBe(1);
+    });
+  });
+
   it("treats a cooperative deadline overrun as whole-list fallback", async () => {
     await withFixtures(async (tuning, heldOut) => {
       const plan = createJevEvaluationPlan({
@@ -405,7 +699,101 @@ describe("bounded Jev replay", () => {
           candidateEntryIds: ["d1", "d2", "d3", "d4", "d5", "z-answer"],
         },
       });
+      expect(report.cases.find(({ queryId }) => queryId === "owner")?.semantic).toMatchObject({
+        usage: { inputTokens: 320, outputTokens: 20 },
+        usageStatus: "provider-reported",
+      });
       expect(report.operations.latencyMs.cooperativeDeadlineOverruns).toBe(1);
+    });
+  });
+
+  it("falls back after validation when later ordering work overruns the deadline", async () => {
+    await withFixtures(async (tuning, heldOut) => {
+      const plan = createJevEvaluationPlan({
+        tuningFixture: tuning.fixture,
+        heldOutInputSha256: heldOut.fixture.digests,
+        inputKind: "synthetic",
+        implementation,
+      });
+      const clock = [0, 0, 0, 0, 0, 1_201];
+      const report = await evaluateJevReplay(heldOut.fixture, plan, {
+        phase: "held-out",
+        transport: scriptedTransport((request) => scriptedResponse(request)),
+        apiKey: "scripted-key",
+        implementation,
+        now: () => clock.shift() ?? 1_201,
+      });
+
+      expect(report.cases.find(({ queryId }) => queryId === "owner")?.semantic).toMatchObject({
+        result: "lexical-fallback",
+        fallbackReason: "deadline-overrun",
+        candidateEntryIds: ["d1", "d2", "d3", "d4", "d5", "z-answer"],
+        usageStatus: "provider-reported",
+      });
+    });
+  });
+
+  it("retains provider-reported usage from an incomplete judgment response", async () => {
+    await withFixtures(async (tuning, heldOut) => {
+      const plan = createJevEvaluationPlan({
+        tuningFixture: tuning.fixture,
+        heldOutInputSha256: heldOut.fixture.digests,
+        inputKind: "synthetic",
+        implementation,
+      });
+      const report = await evaluateJevReplay(heldOut.fixture, plan, {
+        phase: "held-out",
+        transport: scriptedTransport(() => ({
+          status: 200,
+          body: JSON.stringify({
+            model: "jev-1.13.0",
+            answers: {},
+            usage: { input_tokens: 77, output_tokens: 4 },
+          }),
+        })),
+        apiKey: "scripted-key",
+        implementation,
+      });
+
+      expect(report.cases.find(({ queryId }) => queryId === "owner")?.semantic).toMatchObject({
+        result: "lexical-fallback",
+        fallbackReason: "response-answer-keys",
+        usage: { inputTokens: 77, outputTokens: 4 },
+        usageStatus: "provider-reported",
+      });
+      expect(report.operations).toMatchObject({
+        attemptedRequests: 2,
+        providerReportedUsageResponses: 2,
+        requestsWithUnknownUsage: 0,
+        providerReportedInputTokens: 154,
+        providerReportedOutputTokens: 8,
+      });
+    });
+  });
+
+  it("retains provider-reported usage from a non-success HTTP response", async () => {
+    await withFixtures(async (tuning, heldOut) => {
+      const plan = createJevEvaluationPlan({
+        tuningFixture: tuning.fixture,
+        heldOutInputSha256: heldOut.fixture.digests,
+        inputKind: "synthetic",
+        implementation,
+      });
+      const report = await evaluateJevReplay(heldOut.fixture, plan, {
+        phase: "held-out",
+        transport: scriptedTransport(() => ({
+          status: 429,
+          body: JSON.stringify({ usage: { input_tokens: 11, output_tokens: 0 } }),
+        })),
+        apiKey: "scripted-key",
+        implementation,
+      });
+
+      expect(report.cases.find(({ queryId }) => queryId === "owner")?.semantic).toMatchObject({
+        fallbackReason: "transport-http-status",
+        usage: { inputTokens: 11, outputTokens: 0 },
+        usageStatus: "provider-reported",
+      });
     });
   });
 
@@ -431,45 +819,54 @@ describe("bounded Jev replay", () => {
           bestKnownAnswerRank: 1,
           usage: null,
           usageIssue: "invalid-usage",
+          usageStatus: "unknown",
         },
       });
       expect(report.operations).toMatchObject({
         validJudgments: 2,
-        responsesWithValidUsage: 0,
+        providerReportedUsageResponses: 0,
+        requestsWithUnknownUsage: 2,
+        costs: { completeProviderReportedInputCostUsd: null },
       });
       expect(report.gates.reasons).toContain("actual-usage-evidence-incomplete");
     });
   });
 
-  it("does not dispatch a live held-out request before qualified real calibration", async () => {
-    await withFixtures(async (tuning, heldOut) => {
-      const privatePlan = createJevEvaluationPlan({
+  it("does not dispatch from a plan whose frozen preparation is blocked", async () => {
+    const tuning = writeFixture(
+      "tuning",
+      "blocked-plan-tuning",
+      `which team owns amber release marker ${"x ".repeat(2_100)}`,
+    );
+    const heldOut = writeFixture("held-out", "blocked-plan-held-out");
+    try {
+      const plan = createJevEvaluationPlan({
         tuningFixture: tuning.fixture,
         heldOutInputSha256: heldOut.fixture.digests,
-        inputKind: "private-reviewed",
+        inputKind: "synthetic",
         implementation,
       });
       let calls = 0;
-      const report = await evaluateJevReplay(heldOut.fixture, privatePlan, {
-        phase: "held-out",
+      const report = await evaluateJevReplay(tuning.fixture, plan, {
+        phase: "calibration",
         transport: scriptedTransport((request) => {
           calls++;
           return scriptedResponse(request);
-        }, "native-api"),
-        apiKey: "operator-key",
-        approval,
+        }),
+        apiKey: "scripted-key",
         implementation,
       });
 
+      expect(plan.preparation.status).toBe("BLOCKED");
       expect(calls).toBe(0);
-      expect(report.cases[0]).toMatchObject({
-        semantic: {
-          result: "lexical-fallback",
-          fallbackReason: "qualified-calibration-required",
-        },
+      expect(report.cases.find(({ queryId }) => queryId === "owner")?.semantic).toMatchObject({
+        fallbackReason: "plan-preparation-blocked",
       });
-      expect(report.gates.reasons).toContain("qualified-real-api-calibration-missing");
-    });
+      expect(report.gates.reasons).toContain("plan-preparation-blocked");
+    } finally {
+      rmSync(tuning.dir, { recursive: true });
+      rmSync(heldOut.dir, { recursive: true });
+    }
   });
 
   it("keeps candidate misses separate from semantic rank misses", async () => {

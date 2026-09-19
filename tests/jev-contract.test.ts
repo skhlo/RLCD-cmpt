@@ -208,6 +208,24 @@ describe("complete Jev response binding", () => {
     });
   });
 
+  it("retains provider-reported usage when judgment validation fails", () => {
+    expect(
+      validateJevResponse(
+        {
+          model: JEV_MODEL,
+          answers: { c0: { type: "noul", noul: 0.8 } },
+          usage: { input_tokens: 42, output_tokens: 3 },
+        },
+        prepare().binding,
+      ),
+    ).toEqual({
+      ok: false,
+      reason: "answer-keys",
+      usage: { inputTokens: 42, outputTokens: 3 },
+      usageIssue: null,
+    });
+  });
+
   it.each([
     ["a non-object", null, "response-object"],
     [
@@ -262,7 +280,7 @@ describe("complete Jev response binding", () => {
       "answer-range",
     ],
   ])("rejects %s as a whole response", (_name, response, expectedCode) => {
-    expect(validateJevResponse(response, prepare().binding)).toEqual({
+    expect(validateJevResponse(response, prepare().binding)).toMatchObject({
       ok: false,
       reason: expectedCode,
     });

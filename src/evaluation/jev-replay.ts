@@ -8,8 +8,10 @@ import {
   JEV_PROMPT_VERSION,
   JEV_RESPONSE_CONTRACT_VERSION,
   prepareJevRequest,
+  projectJevUsage,
   rankPreparedCandidates,
   validateJevResponse,
+  type JevReportedUsage,
   type JevRequestMeasurements,
   type PreparedJevRequest,
 } from "./jev-contract.js";
@@ -20,7 +22,11 @@ import {
   type ReplayImplementationProvenance,
 } from "./lexical-replay.js";
 import type { ReplayFixture, ReplayFixtureCase } from "./replay-fixture.js";
-import { TypeSafeHttpError, type JevTransport } from "./typesafe-http.js";
+import {
+  TypeSafeHttpError,
+  jevTransportEvidenceSource,
+  type JevTransport,
+} from "./typesafe-http.js";
 
 export type JevEvaluationInputKind = "synthetic" | "private-reviewed";
 export type JevEvaluationPhase = "calibration" | "held-out";
@@ -102,6 +108,25 @@ export interface JevEvaluationPlan {
   };
 }
 
+type JevEvaluationPlanContents = Omit<JevEvaluationPlan, "freezeSha256">;
+
+export const evaluationPlanFreezeSha256 = (
+  plan: JevEvaluationPlanContents | JevEvaluationPlan,
+): string =>
+  sha256(
+    JSON.stringify({
+      manifestVersion: plan.manifestVersion,
+      evaluator: plan.evaluator,
+      implementation: plan.implementation,
+      input: plan.input,
+      contract: plan.contract,
+      thresholds: plan.thresholds,
+      pricing: plan.pricing,
+      preparation: plan.preparation,
+      gates: plan.gates,
+    }),
+  );
+
 export interface JevEvaluationApproval {
   readonly evidenceSha256: string;
   readonly transmissionApproved: boolean;
@@ -149,11 +174,9 @@ export interface JevReplayCaseReport {
       readonly entryId: string;
       readonly noul: number;
     }[];
-    readonly usage: {
-      readonly inputTokens: number;
-      readonly outputTokens: number;
-    } | null;
-    readonly usageIssue: "invalid-usage" | null;
+    readonly usage: JevReportedUsage | null;
+    readonly usageStatus: "not-dispatched" | "provider-reported" | "unknown";
+    readonly usageIssue: "invalid-usage" | "response-unavailable" | null;
     readonly requestSha256: string | null;
     readonly transmittedRequest: PreparedJevRequest["request"] | null;
     readonly requestMeasurements: JevRequestMeasurements | null;
@@ -197,7 +220,7 @@ export interface JevReplayReport {
     readonly calibrationEvidenceSha256: string | null;
     readonly localRawEvidenceRetentionDays: number | null;
     readonly localRetentionExtensionReference: string | null;
-    readonly actualApiUsage: boolean;
+    readonly nativeApiRequestsDispatched: boolean;
     readonly estimatorCalibrationAccepted: boolean;
     readonly price: typeof JEV_PRICE;
   };
@@ -206,10 +229,17 @@ export interface JevReplayReport {
     readonly attemptedRequests: number;
     readonly validJudgments: number;
     readonly completeWithinDeadline: number;
-    readonly responsesWithValidUsage: number;
-    readonly inputTokens: number;
-    readonly outputTokens: number;
-    readonly estimatedInputCostUsd: number;
+    readonly providerReportedUsageResponses: number;
+    readonly requestsWithUnknownUsage: number;
+    readonly providerReportedInputTokens: number;
+    readonly providerReportedOutputTokens: number;
+    readonly estimatedInputTokens: number;
+    readonly costs: {
+      readonly providerReportedInputCostUsd: number;
+      readonly estimatedInputCostUsd: number;
+      readonly completeProviderReportedInputCostUsd: number | null;
+      readonly requestsWithUnknownCost: number;
+    };
     readonly estimatorError: {
       readonly maximumUnderestimateRatio: number | null;
       readonly meanActualMinusEstimatedTokens: number | null;
@@ -254,12 +284,19 @@ export interface JevReplayReport {
       readonly reviewStatus: "pending";
     }[];
     readonly disagreements: readonly ComparisonDisagreement[];
+    readonly noAnswerCases: number;
+    readonly noAnswerEligibleCases: number;
+    readonly noAnswerCompleteJudgments: number;
+    readonly noAnswerZeroCandidateCases: number;
     readonly noAnswerHighSupport: readonly {
       readonly queryId: string;
       readonly entryId: string;
       readonly noul: number;
     }[];
     readonly adversarialCases: number;
+    readonly adversarialEligibleCases: number;
+    readonly adversarialCompleteJudgments: number;
+    readonly adversarialZeroCandidateCases: number;
     readonly adversarialHighSupport: readonly {
       readonly queryId: string;
       readonly entryId: string;
@@ -282,6 +319,12 @@ const roundCost = (value: number): number =>
   Math.round(value * 1_000_000_000_000) / 1_000_000_000_000;
 const equalIds = (left: readonly string[], right: readonly string[]): boolean =>
   left.length === right.length && left.every((id, index) => id === right[index]);
+
+const throwIfCallerCancelled = (signal: AbortSignal | undefined): void => {
+  if (!signal?.aborted) return;
+  if (signal.reason instanceof Error) throw signal.reason;
+  throw new DOMException("The evaluation was cancelled", "AbortError");
+};
 
 const transportFailureReason = (error: unknown): string => {
   if (error instanceof TypeSafeHttpError) {
@@ -380,23 +423,15 @@ export const createJevEvaluationPlan = (options: {
     tokenEstimateIsExact: false as const,
     liveShadowEvaluationsRequiredForOfflineEvaluator: false as const,
   };
-  const frozen = {
-    implementation: options.implementation,
-    input,
-    contract,
-    thresholds: JEV_EVALUATION_THRESHOLDS,
-    pricing: JEV_PRICE,
-  };
   const reasons = ["real-api-calibration-missing", "held-out-evaluation-missing"];
   if (options.inputKind === "synthetic") {
     reasons.push("synthetic-input-cannot-pass-empirical-gates");
   }
   if (failedQueries > 0) reasons.push("preparation-failures-present");
 
-  return {
+  const contents: JevEvaluationPlanContents = {
     manifestVersion: 1,
     evaluator: "jev-evaluation-plan-v1",
-    freezeSha256: sha256(JSON.stringify(frozen)),
     implementation: options.implementation,
     input,
     contract,
@@ -411,6 +446,7 @@ export const createJevEvaluationPlan = (options: {
     },
     gates: { status: "BLOCKED", reasons },
   };
+  return { ...contents, freezeSha256: evaluationPlanFreezeSha256(contents) };
 };
 
 const percentile = (values: readonly number[], probability: number): number | null => {
@@ -447,8 +483,9 @@ const dispatchBlockReason = (
   options: EvaluateJevReplayOptions,
 ): string | null => {
   if (!inputMatchesPlan(fixture, plan, options.phase)) return "input-provenance-mismatch";
+  if (plan.preparation.status !== "READY_FOR_CALIBRATION") return "plan-preparation-blocked";
   if (!options.transport) return "transmission-not-approved";
-  if (options.transport.evidenceSource === "scripted") return null;
+  if (jevTransportEvidenceSource(options.transport) === "scripted") return null;
   if (!options.approval?.transmissionApproved) return "transmission-approval-required";
   if (plan.input.kind === "private-reviewed" && !options.approval.privateAccountTermsAccepted) {
     return "account-terms-acceptance-required";
@@ -497,325 +534,93 @@ const lexicalProjection = (
   };
 };
 
+const estimatorErrorFor = (
+  measurements: JevRequestMeasurements | null,
+  usage: JevReportedUsage | null,
+): JevReplayCaseReport["semantic"]["estimatorError"] => {
+  if (!measurements || !usage) return null;
+  const delta = usage.inputTokens - measurements.requestEstimatedInputTokens;
+  const underestimateRatio = usage.inputTokens === 0 ? 0 : Math.max(0, delta / usage.inputTokens);
+  return {
+    estimatedInputTokens: measurements.requestEstimatedInputTokens,
+    actualInputTokens: usage.inputTokens,
+    actualMinusEstimatedTokens: delta,
+    underestimateRatio: round(underestimateRatio),
+  };
+};
+
+interface FallbackDetails {
+  readonly preparationMs?: number;
+  readonly totalAddedMs?: number;
+  readonly measurements?: JevRequestMeasurements;
+  readonly requestHash?: string;
+  readonly transmittedRequest?: PreparedJevRequest["request"];
+  readonly usage?: JevReportedUsage | null;
+  readonly usageIssue?: "invalid-usage" | "response-unavailable" | null;
+  readonly transportMs?: number;
+}
+
 const fallbackCase = (
   fixtureCase: ReplayFixtureCase,
   lexical: JevReplayCaseReport["lexical"],
   reason: string,
-  preparationMs = 0,
-  totalAddedMs = 0,
-  measurements: JevRequestMeasurements | null = null,
-  requestHash: string | null = null,
-  transmittedRequest: PreparedJevRequest["request"] | null = null,
-): JevReplayCaseReport => ({
-  queryId: fixtureCase.query.id,
-  query: fixtureCase.query.text,
-  category: fixtureCase.query.category,
-  lexical,
-  semantic: {
-    result: "lexical-fallback",
-    fallbackReason: reason,
-    candidateEntryIds: lexical.candidateEntryIds,
-    bestKnownAnswerRank: lexical.bestKnownAnswerRank,
-    scores: [],
-    usage: null,
-    usageIssue: null,
-    requestSha256: requestHash,
-    transmittedRequest,
-    requestMeasurements: measurements,
-    timingMs: { preparation: round(preparationMs), transport: 0, totalAdded: round(totalAddedMs) },
-    estimatorError: null,
-  },
-});
-
-export const evaluateJevReplay = async (
-  fixture: ReplayFixture,
-  plan: JevEvaluationPlan,
-  options: EvaluateJevReplayOptions,
-): Promise<JevReplayReport> => {
-  const now = options.now ?? (() => performance.now());
-  const lexicalBaseline = evaluateLexicalReplay(fixture, options.implementation);
-  const lexicalById = lexicalCaseById(lexicalBaseline);
-  const globalBlock = dispatchBlockReason(fixture, plan, options);
-  const failures: Array<{ queryId: string; reason: string }> = [];
-  const cases: JevReplayCaseReport[] = [];
-  const latencies: number[] = [];
-  let eligibleEvaluations = 0;
-  let attemptedRequests = 0;
-  let validJudgments = 0;
-  let completeWithinDeadline = 0;
-  let responsesWithValidUsage = 0;
-  let inputTokens = 0;
-  let outputTokens = 0;
-  const estimatorDeltas: number[] = [];
-  const underestimateRatios: number[] = [];
-
-  for (const fixtureCase of fixture.cases) {
-    const hits = fixtureCaseHits(fixture, fixtureCase);
-    const lexical = lexicalProjection(lexicalById.get(fixtureCase.query.id), hits);
-    if (fixtureCase.truth.classification === "invalid") {
-      cases.push(fallbackCase(fixtureCase, lexical, "invalid-truth"));
-      failures.push({ queryId: fixtureCase.query.id, reason: "invalid-truth" });
-      continue;
-    }
-    if (hits.length === 0) {
-      cases.push(fallbackCase(fixtureCase, lexical, "no-candidates"));
-      continue;
-    }
-    eligibleEvaluations++;
-    if (globalBlock) {
-      cases.push(fallbackCase(fixtureCase, lexical, globalBlock));
-      failures.push({ queryId: fixtureCase.query.id, reason: globalBlock });
-      continue;
-    }
-
-    const startedAt = now();
-    const prepared = prepareJevRequest(fixtureCase.query.text, hits);
-    const preparedAt = now();
-    const preparationMs = preparedAt - startedAt;
-    if (!prepared.ok) {
-      const reason = `preparation-${prepared.issues[0]?.code ?? "rejected"}`;
-      cases.push(fallbackCase(fixtureCase, lexical, reason, preparationMs, now() - startedAt));
-      failures.push({ queryId: fixtureCase.query.id, reason });
-      continue;
-    }
-    const hash = requestSha256(prepared);
-    const remainingMs = JEV_BOUNDS.proposed.cooperativeDeadlineMs - preparationMs;
-    if (remainingMs <= 0) {
-      cases.push(
-        fallbackCase(
-          fixtureCase,
-          lexical,
-          "preparation-deadline",
-          preparationMs,
-          now() - startedAt,
-          prepared.measurements,
-          hash,
-        ),
-      );
-      failures.push({ queryId: fixtureCase.query.id, reason: "preparation-deadline" });
-      continue;
-    }
-
-    const transport = options.transport;
-    if (!transport) {
-      cases.push(fallbackCase(fixtureCase, lexical, "transport-unavailable"));
-      failures.push({ queryId: fixtureCase.query.id, reason: "transport-unavailable" });
-      continue;
-    }
-    attemptedRequests++;
-    const transportStartedAt = now();
-    let transportResponse: Awaited<ReturnType<JevTransport["send"]>>;
-    try {
-      transportResponse = await transport.send({
-        body: prepared.body,
-        apiKey: options.apiKey ?? "scripted-transport",
-        timeoutMs: remainingMs,
-        responseMaxUtf8Bytes: JEV_BOUNDS.proposed.responseMaxUtf8Bytes,
-        signal: options.signal,
-      });
-    } catch (error) {
-      const reason = transportFailureReason(error);
-      const totalAddedMs = now() - startedAt;
-      latencies.push(totalAddedMs);
-      cases.push(
-        fallbackCase(
-          fixtureCase,
-          lexical,
-          reason,
-          preparationMs,
-          totalAddedMs,
-          prepared.measurements,
-          hash,
-          prepared.request,
-        ),
-      );
-      failures.push({ queryId: fixtureCase.query.id, reason });
-      continue;
-    }
-    const transportFinishedAt = now();
-    const transportMs = transportFinishedAt - transportStartedAt;
-    const totalBeforeValidation = transportFinishedAt - startedAt;
-    const responseBytes = new TextEncoder().encode(transportResponse.body).byteLength;
-    if (
-      transportResponse.status < 200 ||
-      transportResponse.status >= 300 ||
-      responseBytes > JEV_BOUNDS.proposed.responseMaxUtf8Bytes
-    ) {
-      const reason =
-        responseBytes > JEV_BOUNDS.proposed.responseMaxUtf8Bytes
-          ? "response-too-large"
-          : "transport-http-status";
-      latencies.push(totalBeforeValidation);
-      cases.push(
-        fallbackCase(
-          fixtureCase,
-          lexical,
-          reason,
-          preparationMs,
-          totalBeforeValidation,
-          prepared.measurements,
-          hash,
-          prepared.request,
-        ),
-      );
-      failures.push({ queryId: fixtureCase.query.id, reason });
-      continue;
-    }
-    if (totalBeforeValidation > JEV_BOUNDS.proposed.cooperativeDeadlineMs) {
-      latencies.push(totalBeforeValidation);
-      cases.push(
-        fallbackCase(
-          fixtureCase,
-          lexical,
-          "deadline-overrun",
-          preparationMs,
-          totalBeforeValidation,
-          prepared.measurements,
-          hash,
-          prepared.request,
-        ),
-      );
-      failures.push({ queryId: fixtureCase.query.id, reason: "deadline-overrun" });
-      continue;
-    }
-
-    let parsed: unknown;
-    try {
-      parsed = JSON.parse(transportResponse.body);
-    } catch {
-      const totalAddedMs = now() - startedAt;
-      latencies.push(totalAddedMs);
-      cases.push(
-        fallbackCase(
-          fixtureCase,
-          lexical,
-          "response-json",
-          preparationMs,
-          totalAddedMs,
-          prepared.measurements,
-          hash,
-          prepared.request,
-        ),
-      );
-      failures.push({ queryId: fixtureCase.query.id, reason: "response-json" });
-      continue;
-    }
-    const validated = validateJevResponse(parsed, prepared.binding);
-    const validationCompletedMs = now() - startedAt;
-    if (validationCompletedMs > JEV_BOUNDS.proposed.cooperativeDeadlineMs) {
-      latencies.push(validationCompletedMs);
-      cases.push(
-        fallbackCase(
-          fixtureCase,
-          lexical,
-          "deadline-overrun",
-          preparationMs,
-          validationCompletedMs,
-          prepared.measurements,
-          hash,
-          prepared.request,
-        ),
-      );
-      failures.push({ queryId: fixtureCase.query.id, reason: "deadline-overrun" });
-      continue;
-    }
-    if (!validated.ok) {
-      const reason = `response-${validated.reason}`;
-      latencies.push(validationCompletedMs);
-      cases.push(
-        fallbackCase(
-          fixtureCase,
-          lexical,
-          reason,
-          preparationMs,
-          validationCompletedMs,
-          prepared.measurements,
-          hash,
-          prepared.request,
-        ),
-      );
-      failures.push({ queryId: fixtureCase.query.id, reason });
-      continue;
-    }
-
-    const reranked = rankPreparedCandidates(hits, validated.scoresByEntryId);
-    const candidateEntryIds = reranked.map(({ id }) => id);
-    const answerIds =
-      fixtureCase.truth.classification === "answerable" ? fixtureCase.truth.answerEntryIds : [];
-    const scores = prepared.binding.map(({ entryId }) => ({
-      entryId,
-      noul: validated.scoresByEntryId[entryId],
-    }));
-    const totalAddedMs = now() - startedAt;
-    latencies.push(totalAddedMs);
-    if (totalAddedMs > JEV_BOUNDS.proposed.cooperativeDeadlineMs) {
-      cases.push(
-        fallbackCase(
-          fixtureCase,
-          lexical,
-          "deadline-overrun",
-          preparationMs,
-          totalAddedMs,
-          prepared.measurements,
-          hash,
-          prepared.request,
-        ),
-      );
-      failures.push({ queryId: fixtureCase.query.id, reason: "deadline-overrun" });
-      continue;
-    }
-
-    validJudgments++;
-    completeWithinDeadline++;
-    let estimatorError: JevReplayCaseReport["semantic"]["estimatorError"] = null;
-    if (validated.usage) {
-      responsesWithValidUsage++;
-      inputTokens += validated.usage.inputTokens;
-      outputTokens += validated.usage.outputTokens;
-      const delta = validated.usage.inputTokens - prepared.measurements.requestEstimatedInputTokens;
-      const underestimateRatio =
-        validated.usage.inputTokens === 0 ? 0 : Math.max(0, delta / validated.usage.inputTokens);
-      estimatorDeltas.push(delta);
-      underestimateRatios.push(underestimateRatio);
-      estimatorError = {
-        estimatedInputTokens: prepared.measurements.requestEstimatedInputTokens,
-        actualInputTokens: validated.usage.inputTokens,
-        actualMinusEstimatedTokens: delta,
-        underestimateRatio: round(underestimateRatio),
-      };
-    }
-    cases.push({
-      queryId: fixtureCase.query.id,
-      query: fixtureCase.query.text,
-      category: fixtureCase.query.category,
-      lexical,
-      semantic: {
-        result: "reranked",
-        fallbackReason: null,
-        candidateEntryIds,
-        bestKnownAnswerRank: bestRank(candidateEntryIds, answerIds),
-        scores,
-        usage: validated.usage,
-        usageIssue: validated.usageIssue,
-        requestSha256: hash,
-        transmittedRequest: prepared.request,
-        requestMeasurements: prepared.measurements,
-        timingMs: {
-          preparation: round(preparationMs),
-          transport: round(transportMs),
-          totalAdded: round(totalAddedMs),
-        },
-        estimatorError,
+  details: FallbackDetails = {},
+): JevReplayCaseReport => {
+  const measurements = details.measurements ?? null;
+  const transmittedRequest = details.transmittedRequest ?? null;
+  const usage = details.usage ?? null;
+  const usageIssue = details.usageIssue ?? null;
+  return {
+    queryId: fixtureCase.query.id,
+    query: fixtureCase.query.text,
+    category: fixtureCase.query.category,
+    lexical,
+    semantic: {
+      result: "lexical-fallback",
+      fallbackReason: reason,
+      candidateEntryIds: lexical.candidateEntryIds,
+      bestKnownAnswerRank: lexical.bestKnownAnswerRank,
+      scores: [],
+      usage,
+      usageStatus:
+        transmittedRequest === null
+          ? "not-dispatched"
+          : usage === null
+            ? "unknown"
+            : "provider-reported",
+      usageIssue:
+        transmittedRequest === null || usage !== null
+          ? usageIssue
+          : (usageIssue ?? "response-unavailable"),
+      requestSha256: details.requestHash ?? null,
+      transmittedRequest,
+      requestMeasurements: measurements,
+      timingMs: {
+        preparation: round(details.preparationMs ?? 0),
+        transport: round(details.transportMs ?? 0),
+        totalAdded: round(details.totalAddedMs ?? 0),
       },
-    });
-  }
+      estimatorError: estimatorErrorFor(measurements, usage),
+    },
+  };
+};
 
-  const answerableCases = fixture.cases.filter(
-    (fixtureCase) => fixtureCase.truth.classification === "answerable",
+export const deriveJevReplayComparison = (
+  lexicalBaseline: LexicalReplayReport,
+  cases: readonly JevReplayCaseReport[],
+  thresholds: typeof JEV_EVALUATION_THRESHOLDS,
+): JevReplayReport["comparison"] => {
+  const answerableIds = new Set(
+    lexicalBaseline.cases
+      .filter(
+        (caseReport): caseReport is AnswerableReplayCaseReport =>
+          caseReport.outcome === "answer-at-5" ||
+          caseReport.outcome === "rank-miss" ||
+          caseReport.outcome === "candidate-miss",
+      )
+      .map(({ queryId }) => queryId),
   );
-  const answerableReports = answerableCases
-    .map((fixtureCase) => cases.find(({ queryId }) => queryId === fixtureCase.query.id))
-    .filter((caseReport): caseReport is JevReplayCaseReport => caseReport !== undefined);
+  const answerableReports = cases.filter(({ queryId }) => answerableIds.has(queryId));
   const denominator = answerableReports.length;
   const lexicalTop5 = answerableReports.filter(
     ({ lexical }) => lexical.bestKnownAnswerRank !== null && lexical.bestKnownAnswerRank <= 5,
@@ -869,18 +674,18 @@ export const evaluateJevReplay = async (
       lexicalRank <= 5 && (semanticRank === null || semanticRank > 5),
   );
   const noAnswerIds = new Set(
-    fixture.cases
-      .filter((fixtureCase) => fixtureCase.truth.classification === "no-answer")
-      .map((fixtureCase) => fixtureCase.query.id),
+    lexicalBaseline.cases
+      .filter(({ outcome }) => outcome === "no-answer-empty" || outcome === "no-answer-candidates")
+      .map(({ queryId }) => queryId),
   );
   const adversarialIds = new Set(
-    fixture.cases
+    lexicalBaseline.cases
       .filter(
-        (fixtureCase) =>
-          fixtureCase.truth.classification === "no-answer" &&
-          fixtureCase.query.category.includes("adversarial"),
+        ({ outcome, category }) =>
+          (outcome === "no-answer-empty" || outcome === "no-answer-candidates") &&
+          category.includes("adversarial"),
       )
-      .map((fixtureCase) => fixtureCase.query.id),
+      .map(({ queryId }) => queryId),
   );
   const highSupport = (
     ids: ReadonlySet<string>,
@@ -893,14 +698,29 @@ export const evaluateJevReplay = async (
             .map(({ entryId, noul }) => ({ queryId: caseReport.queryId, entryId, noul }))
         : [],
     );
-
+  const categoryEvidence = (ids: ReadonlySet<string>) => {
+    const categoryReports = cases.filter(({ queryId }) => ids.has(queryId));
+    const eligibleReports = categoryReports.filter(
+      ({ lexical }) => lexical.candidateEntryIds.length > 0,
+    );
+    return {
+      cases: categoryReports.length,
+      eligibleCases: eligibleReports.length,
+      completeJudgments: eligibleReports.filter(({ semantic }) => semantic.result === "reranked")
+        .length,
+      zeroCandidateCases: categoryReports.length - eligibleReports.length,
+    };
+  };
+  const noAnswerEvidence = categoryEvidence(noAnswerIds);
+  const adversarialEvidence = categoryEvidence(adversarialIds);
   const candidateMissDetails = lexicalBaseline.cases
     .filter(
       (caseReport): caseReport is AnswerableReplayCaseReport =>
         caseReport.outcome === "candidate-miss",
     )
     .map(({ queryId, candidateMissReason }) => ({ queryId, reason: candidateMissReason }));
-  const comparison: JevReplayReport["comparison"] = {
+
+  return {
     candidateMisses: candidateMissDetails.length,
     candidateMissDetails,
     lexicalRankMisses: lexicalBaseline.aggregate.rankMisses,
@@ -929,106 +749,487 @@ export const evaluateJevReplay = async (
     rankRegressions,
     firstPageRegressions,
     disagreements,
-    noAnswerHighSupport: highSupport(
-      noAnswerIds,
-      JEV_EVALUATION_THRESHOLDS.noAnswerHighSupportThreshold,
-    ),
-    adversarialCases: adversarialIds.size,
-    adversarialHighSupport: highSupport(
-      adversarialIds,
-      JEV_EVALUATION_THRESHOLDS.adversarialHighSupportThreshold,
+    noAnswerCases: noAnswerEvidence.cases,
+    noAnswerEligibleCases: noAnswerEvidence.eligibleCases,
+    noAnswerCompleteJudgments: noAnswerEvidence.completeJudgments,
+    noAnswerZeroCandidateCases: noAnswerEvidence.zeroCandidateCases,
+    noAnswerHighSupport: highSupport(noAnswerIds, thresholds.noAnswerHighSupportThreshold),
+    adversarialCases: adversarialEvidence.cases,
+    adversarialEligibleCases: adversarialEvidence.eligibleCases,
+    adversarialCompleteJudgments: adversarialEvidence.completeJudgments,
+    adversarialZeroCandidateCases: adversarialEvidence.zeroCandidateCases,
+    adversarialHighSupport: highSupport(adversarialIds, thresholds.adversarialHighSupportThreshold),
+  };
+};
+
+export const deriveJevReplayOperations = (
+  cases: readonly JevReplayCaseReport[],
+): JevReplayReport["operations"] => {
+  const eligibleCases = cases.filter(
+    ({ lexical }) => lexical.outcome !== "invalid" && lexical.candidateEntryIds.length > 0,
+  );
+  const attemptedCases = cases.filter(({ semantic }) => semantic.transmittedRequest !== null);
+  const reportedUsageCases = attemptedCases.filter(({ semantic }) => semantic.usage !== null);
+  const providerReportedInputTokens = reportedUsageCases.reduce(
+    (sum, { semantic }) => sum + (semantic.usage?.inputTokens ?? 0),
+    0,
+  );
+  const providerReportedOutputTokens = reportedUsageCases.reduce(
+    (sum, { semantic }) => sum + (semantic.usage?.outputTokens ?? 0),
+    0,
+  );
+  const estimatedInputTokens = attemptedCases.reduce(
+    (sum, { semantic }) => sum + (semantic.requestMeasurements?.requestEstimatedInputTokens ?? 0),
+    0,
+  );
+  const estimatorErrors = reportedUsageCases
+    .map(({ semantic }) => semantic.estimatorError)
+    .filter(
+      (value): value is NonNullable<JevReplayCaseReport["semantic"]["estimatorError"]> =>
+        value !== null,
+    );
+  const latencies = attemptedCases.map(({ semantic }) => semantic.timingMs.totalAdded);
+  const requestsWithUnknownUsage = attemptedCases.length - reportedUsageCases.length;
+  const providerReportedInputCostUsd = roundCost(
+    (providerReportedInputTokens / 1_000_000) * JEV_PRICE.inputUsdPerMillionTokens,
+  );
+
+  return {
+    eligibleEvaluations: eligibleCases.length,
+    attemptedRequests: attemptedCases.length,
+    validJudgments: cases.filter(({ semantic }) => semantic.result === "reranked").length,
+    completeWithinDeadline: cases.filter(({ semantic }) => semantic.result === "reranked").length,
+    providerReportedUsageResponses: reportedUsageCases.length,
+    requestsWithUnknownUsage,
+    providerReportedInputTokens,
+    providerReportedOutputTokens,
+    estimatedInputTokens,
+    costs: {
+      providerReportedInputCostUsd,
+      estimatedInputCostUsd: roundCost(
+        (estimatedInputTokens / 1_000_000) * JEV_PRICE.inputUsdPerMillionTokens,
+      ),
+      completeProviderReportedInputCostUsd:
+        requestsWithUnknownUsage === 0 ? providerReportedInputCostUsd : null,
+      requestsWithUnknownCost: requestsWithUnknownUsage,
+    },
+    estimatorError: {
+      maximumUnderestimateRatio:
+        estimatorErrors.length === 0
+          ? null
+          : round(Math.max(...estimatorErrors.map(({ underestimateRatio }) => underestimateRatio))),
+      meanActualMinusEstimatedTokens:
+        estimatorErrors.length === 0
+          ? null
+          : round(
+              estimatorErrors.reduce(
+                (sum, { actualMinusEstimatedTokens }) => sum + actualMinusEstimatedTokens,
+                0,
+              ) / estimatorErrors.length,
+            ),
+    },
+    latencyMs: {
+      p50: percentile(latencies, 0.5),
+      p95: percentile(latencies, 0.95),
+      maximum: latencies.length === 0 ? null : round(Math.max(...latencies)),
+      cooperativeDeadlineOverruns: latencies.filter(
+        (latency) => latency > JEV_BOUNDS.proposed.cooperativeDeadlineMs,
+      ).length,
+    },
+    failures: cases.flatMap(({ queryId, semantic }) =>
+      semantic.result === "lexical-fallback" &&
+      semantic.fallbackReason !== null &&
+      semantic.fallbackReason !== "no-candidates"
+        ? [{ queryId, reason: semantic.fallbackReason }]
+        : [],
     ),
   };
+};
 
-  const p95 = percentile(latencies, 0.95);
-  const maximumLatency = latencies.length === 0 ? null : round(Math.max(...latencies));
-  const maximumUnderestimateRatio =
-    underestimateRatios.length === 0 ? null : round(Math.max(...underestimateRatios));
-  const estimatorCalibrationAccepted =
-    options.transport?.evidenceSource === "native-api" &&
-    plan.input.kind === "private-reviewed" &&
-    responsesWithValidUsage >= JEV_EVALUATION_THRESHOLDS.calibrationMinimumObservedRequests &&
-    maximumUnderestimateRatio !== null &&
-    maximumUnderestimateRatio <= JEV_EVALUATION_THRESHOLDS.estimatorMaximumUnderestimateRatio;
-  const actualApiUsage =
-    options.transport?.evidenceSource === "native-api" && responsesWithValidUsage > 0;
+const PREFLIGHT_FAILURE_REASONS = new Set([
+  "input-provenance-mismatch",
+  "plan-preparation-blocked",
+  "transmission-approval-required",
+  "account-terms-acceptance-required",
+  "qualified-calibration-required",
+  "credential-unavailable",
+]);
+
+export const deriveJevReplayGates = (input: {
+  readonly phase: JevEvaluationPhase;
+  readonly plan: JevEvaluationPlan;
+  readonly lexicalBaseline: LexicalReplayReport;
+  readonly evidence: JevReplayReport["evidence"];
+  readonly operations: JevReplayReport["operations"];
+  readonly comparison: JevReplayReport["comparison"];
+}): JevReplayReport["gates"] => {
+  const { plan, lexicalBaseline, evidence, operations, comparison } = input;
+  const thresholds = plan.thresholds;
   const reasons: string[] = [];
-  if (!options.transport) reasons.push("live-transmission-approval-and-evidence-missing");
-  if (options.transport?.evidenceSource === "scripted") {
+  if (evidence.source === "none") {
+    reasons.push("live-transmission-approval-and-evidence-missing");
+  }
+  if (evidence.source === "scripted") {
     reasons.push("scripted-transport-is-not-empirical-evidence");
   }
   if (plan.input.kind === "synthetic") {
     reasons.push("synthetic-input-cannot-pass-empirical-gates");
   }
-  if (globalBlock === "qualified-calibration-required") {
-    reasons.push("qualified-real-api-calibration-missing");
-  } else if (globalBlock) {
-    reasons.push(globalBlock);
+  if (plan.preparation.status !== "READY_FOR_CALIBRATION") {
+    reasons.push("plan-preparation-blocked");
   }
-  if (validJudgments > responsesWithValidUsage) reasons.push("actual-usage-evidence-incomplete");
+  const preflightFailure = operations.failures.find(({ reason }) =>
+    PREFLIGHT_FAILURE_REASONS.has(reason),
+  )?.reason;
+  if (preflightFailure === "qualified-calibration-required") {
+    reasons.push("qualified-real-api-calibration-missing");
+  } else if (preflightFailure) {
+    reasons.push(preflightFailure);
+  }
+  if (operations.requestsWithUnknownUsage > 0) {
+    reasons.push("actual-usage-evidence-incomplete");
+  }
   if (!lexicalBaseline.validation.valid) reasons.push("fixture-validation-failed");
   if (comparison.disagreements.length > 0 || comparison.rankRegressions.length > 0) {
     reasons.push("review-evidence-missing");
   }
-  if (comparison.adversarialCases === 0) reasons.push("adversarial-evidence-missing");
+  if (comparison.noAnswerCases === 0 || comparison.noAnswerEligibleCases === 0) {
+    reasons.push("no-answer-evidence-missing");
+  } else if (comparison.noAnswerCompleteJudgments !== comparison.noAnswerEligibleCases) {
+    reasons.push("no-answer-judgment-evidence-incomplete");
+  }
+  if (comparison.adversarialCases === 0 || comparison.adversarialEligibleCases === 0) {
+    reasons.push("adversarial-evidence-missing");
+  } else if (comparison.adversarialCompleteJudgments !== comparison.adversarialEligibleCases) {
+    reasons.push("adversarial-judgment-evidence-incomplete");
+  }
   const coverage = lexicalBaseline.aggregate.candidateCoverage.rate;
-  if (coverage === null || coverage < JEV_EVALUATION_THRESHOLDS.candidateCoverageMinimum) {
+  if (coverage === null || coverage < thresholds.candidateCoverageMinimum) {
     reasons.push("candidate-coverage-gate-failed");
   }
   if (
     comparison.answerAt5NetImprovement === null ||
-    comparison.answerAt5NetImprovement < JEV_EVALUATION_THRESHOLDS.answerAt5NetImprovementMinimum ||
-    comparison.promotionsIntoTop5 < JEV_EVALUATION_THRESHOLDS.answerAt5MinimumPromotions
+    comparison.answerAt5NetImprovement < thresholds.answerAt5NetImprovementMinimum ||
+    comparison.promotionsIntoTop5 < thresholds.answerAt5MinimumPromotions
   ) {
     reasons.push("first-page-quality-gate-failed");
   }
   if (
     comparison.meanReciprocalRankDelta === null ||
-    comparison.meanReciprocalRankDelta < JEV_EVALUATION_THRESHOLDS.meanReciprocalRankMinimumDelta
+    comparison.meanReciprocalRankDelta < thresholds.meanReciprocalRankMinimumDelta
   ) {
     reasons.push("reciprocal-rank-gate-failed");
   }
   if (
     comparison.firstPageRegressions.filter(({ consequential }) => consequential).length >
-    JEV_EVALUATION_THRESHOLDS.consequentialFirstPageRegressionMaximum
+    thresholds.consequentialFirstPageRegressionMaximum
   ) {
     reasons.push("consequential-regression-gate-failed");
   }
-  if (
-    comparison.noAnswerHighSupport.length > JEV_EVALUATION_THRESHOLDS.noAnswerHighSupportMaximum
-  ) {
+  if (comparison.noAnswerHighSupport.length > thresholds.noAnswerHighSupportMaximum) {
     reasons.push("no-answer-alarm-gate-failed");
   }
-  if (
-    comparison.adversarialHighSupport.length >
-    JEV_EVALUATION_THRESHOLDS.adversarialHighSupportMaximum
-  ) {
+  if (comparison.adversarialHighSupport.length > thresholds.adversarialHighSupportMaximum) {
     reasons.push("adversarial-alarm-gate-failed");
   }
   const reliabilityRate =
-    eligibleEvaluations === 0 ? null : completeWithinDeadline / eligibleEvaluations;
-  if (
-    reliabilityRate === null ||
-    reliabilityRate < JEV_EVALUATION_THRESHOLDS.completeWithinDeadlineRateMinimum
-  ) {
+    operations.eligibleEvaluations === 0
+      ? null
+      : operations.completeWithinDeadline / operations.eligibleEvaluations;
+  if (reliabilityRate === null || reliabilityRate < thresholds.completeWithinDeadlineRateMinimum) {
     reasons.push("reliability-gate-failed");
   }
   if (
-    p95 === null ||
-    p95 > JEV_EVALUATION_THRESHOLDS.addedLatencyP95MaximumMs ||
-    (maximumLatency ?? Number.POSITIVE_INFINITY) >
-      JEV_EVALUATION_THRESHOLDS.cooperativeDeadlineMaximumMs
+    operations.latencyMs.p95 === null ||
+    operations.latencyMs.p95 > thresholds.addedLatencyP95MaximumMs ||
+    (operations.latencyMs.maximum ?? Number.POSITIVE_INFINITY) >
+      thresholds.cooperativeDeadlineMaximumMs
   ) {
     reasons.push("latency-gate-failed");
   }
-  if (!estimatorCalibrationAccepted) reasons.push("estimator-calibration-gate-blocked");
+  if (!evidence.estimatorCalibrationAccepted) {
+    reasons.push("estimator-calibration-gate-blocked");
+  }
 
-  const readyForHeldOut =
-    options.phase === "calibration" &&
-    estimatorCalibrationAccepted &&
-    options.approval?.transmissionApproved === true &&
-    plan.preparation.status === "READY_FOR_CALIBRATION";
   const uniqueReasons = [...new Set(reasons)];
+  const calibrationReadinessReasons = uniqueReasons.filter(
+    (reason) => reason !== "review-evidence-missing",
+  );
+  return {
+    status: uniqueReasons.length === 0 ? "PASS" : "BLOCKED",
+    readyForHeldOut:
+      input.phase === "calibration" &&
+      evidence.source === "native-api" &&
+      evidence.approvalEvidenceSha256 !== null &&
+      calibrationReadinessReasons.length === 0,
+    reasons: uniqueReasons,
+  };
+};
+
+export const evaluateJevReplay = async (
+  fixture: ReplayFixture,
+  plan: JevEvaluationPlan,
+  options: EvaluateJevReplayOptions,
+): Promise<JevReplayReport> => {
+  const now = options.now ?? (() => performance.now());
+  const evidenceSource = jevTransportEvidenceSource(options.transport);
+  throwIfCallerCancelled(options.signal);
+  const lexicalBaseline = evaluateLexicalReplay(fixture, options.implementation);
+  const lexicalById = lexicalCaseById(lexicalBaseline);
+  const globalBlock = dispatchBlockReason(fixture, plan, options);
+  const cases: JevReplayCaseReport[] = [];
+
+  for (const fixtureCase of fixture.cases) {
+    throwIfCallerCancelled(options.signal);
+    const hits = fixtureCaseHits(fixture, fixtureCase);
+    const lexical = lexicalProjection(lexicalById.get(fixtureCase.query.id), hits);
+    if (fixtureCase.truth.classification === "invalid") {
+      cases.push(fallbackCase(fixtureCase, lexical, "invalid-truth"));
+      continue;
+    }
+    if (hits.length === 0) {
+      cases.push(fallbackCase(fixtureCase, lexical, "no-candidates"));
+      continue;
+    }
+    if (globalBlock) {
+      cases.push(fallbackCase(fixtureCase, lexical, globalBlock));
+      continue;
+    }
+
+    const startedAt = now();
+    const prepared = prepareJevRequest(fixtureCase.query.text, hits);
+    const preparedAt = now();
+    const preparationMs = preparedAt - startedAt;
+    if (!prepared.ok) {
+      const reason = `preparation-${prepared.issues[0]?.code ?? "rejected"}`;
+      cases.push(
+        fallbackCase(fixtureCase, lexical, reason, {
+          preparationMs,
+          totalAddedMs: now() - startedAt,
+        }),
+      );
+      continue;
+    }
+    const hash = requestSha256(prepared);
+    const remainingMs = JEV_BOUNDS.proposed.cooperativeDeadlineMs - preparationMs;
+    if (remainingMs <= 0) {
+      cases.push(
+        fallbackCase(fixtureCase, lexical, "preparation-deadline", {
+          preparationMs,
+          totalAddedMs: now() - startedAt,
+          measurements: prepared.measurements,
+          requestHash: hash,
+        }),
+      );
+      continue;
+    }
+
+    const transport = options.transport;
+    if (!transport) {
+      cases.push(fallbackCase(fixtureCase, lexical, "transport-unavailable"));
+      continue;
+    }
+    throwIfCallerCancelled(options.signal);
+    const transportStartedAt = now();
+    let transportResponse: Awaited<ReturnType<JevTransport["send"]>>;
+    try {
+      transportResponse = await transport.send({
+        body: prepared.body,
+        apiKey: options.apiKey ?? "scripted-transport",
+        timeoutMs: remainingMs,
+        responseMaxUtf8Bytes: JEV_BOUNDS.proposed.responseMaxUtf8Bytes,
+        signal: options.signal,
+      });
+      throwIfCallerCancelled(options.signal);
+    } catch (error) {
+      throwIfCallerCancelled(options.signal);
+      const reason = transportFailureReason(error);
+      const totalAddedMs = now() - startedAt;
+      const transportMs = now() - transportStartedAt;
+      cases.push(
+        fallbackCase(fixtureCase, lexical, reason, {
+          preparationMs,
+          totalAddedMs,
+          measurements: prepared.measurements,
+          requestHash: hash,
+          transmittedRequest: prepared.request,
+          usageIssue: "response-unavailable",
+          transportMs,
+        }),
+      );
+      continue;
+    }
+    const transportFinishedAt = now();
+    const transportMs = transportFinishedAt - transportStartedAt;
+    const responseBytes = new TextEncoder().encode(transportResponse.body).byteLength;
+    const responseTooLarge = responseBytes > JEV_BOUNDS.proposed.responseMaxUtf8Bytes;
+    let parsed: unknown;
+    let parsedResponse = false;
+    if (!responseTooLarge) {
+      try {
+        parsed = JSON.parse(transportResponse.body);
+        parsedResponse = true;
+      } catch {
+        parsed = undefined;
+      }
+    }
+    const usageProjection = parsedResponse
+      ? projectJevUsage(parsed)
+      : { usage: null, usageIssue: "invalid-usage" as const };
+
+    if (transportResponse.status < 200 || transportResponse.status >= 300 || responseTooLarge) {
+      const reason = responseTooLarge ? "response-too-large" : "transport-http-status";
+      const totalAddedMs = now() - startedAt;
+      cases.push(
+        fallbackCase(fixtureCase, lexical, reason, {
+          preparationMs,
+          totalAddedMs,
+          measurements: prepared.measurements,
+          requestHash: hash,
+          transmittedRequest: prepared.request,
+          usage: usageProjection.usage,
+          usageIssue: usageProjection.usageIssue,
+          transportMs,
+        }),
+      );
+      continue;
+    }
+    if (!parsedResponse) {
+      const totalAddedMs = now() - startedAt;
+      cases.push(
+        fallbackCase(fixtureCase, lexical, "response-json", {
+          preparationMs,
+          totalAddedMs,
+          measurements: prepared.measurements,
+          requestHash: hash,
+          transmittedRequest: prepared.request,
+          usageIssue: "invalid-usage",
+          transportMs,
+        }),
+      );
+      continue;
+    }
+
+    const validated = validateJevResponse(parsed, prepared.binding);
+    const validationCompletedMs = now() - startedAt;
+    if (validationCompletedMs > JEV_BOUNDS.proposed.cooperativeDeadlineMs) {
+      cases.push(
+        fallbackCase(fixtureCase, lexical, "deadline-overrun", {
+          preparationMs,
+          totalAddedMs: validationCompletedMs,
+          measurements: prepared.measurements,
+          requestHash: hash,
+          transmittedRequest: prepared.request,
+          usage: validated.usage,
+          usageIssue: validated.usageIssue,
+          transportMs,
+        }),
+      );
+      continue;
+    }
+    if (!validated.ok) {
+      const reason = `response-${validated.reason}`;
+      cases.push(
+        fallbackCase(fixtureCase, lexical, reason, {
+          preparationMs,
+          totalAddedMs: validationCompletedMs,
+          measurements: prepared.measurements,
+          requestHash: hash,
+          transmittedRequest: prepared.request,
+          usage: validated.usage,
+          usageIssue: validated.usageIssue,
+          transportMs,
+        }),
+      );
+      continue;
+    }
+
+    const reranked = rankPreparedCandidates(hits, validated.scoresByEntryId);
+    const candidateEntryIds = reranked.map(({ id }) => id);
+    const answerIds =
+      fixtureCase.truth.classification === "answerable" ? fixtureCase.truth.answerEntryIds : [];
+    const scores = prepared.binding.map(({ entryId }) => ({
+      entryId,
+      noul: validated.scoresByEntryId[entryId],
+    }));
+    const totalAddedMs = now() - startedAt;
+    if (totalAddedMs > JEV_BOUNDS.proposed.cooperativeDeadlineMs) {
+      cases.push(
+        fallbackCase(fixtureCase, lexical, "deadline-overrun", {
+          preparationMs,
+          totalAddedMs,
+          measurements: prepared.measurements,
+          requestHash: hash,
+          transmittedRequest: prepared.request,
+          usage: validated.usage,
+          usageIssue: validated.usageIssue,
+          transportMs,
+        }),
+      );
+      continue;
+    }
+
+    const estimatorError = estimatorErrorFor(prepared.measurements, validated.usage);
+    cases.push({
+      queryId: fixtureCase.query.id,
+      query: fixtureCase.query.text,
+      category: fixtureCase.query.category,
+      lexical,
+      semantic: {
+        result: "reranked",
+        fallbackReason: null,
+        candidateEntryIds,
+        bestKnownAnswerRank: bestRank(candidateEntryIds, answerIds),
+        scores,
+        usage: validated.usage,
+        usageStatus: validated.usage === null ? "unknown" : "provider-reported",
+        usageIssue: validated.usageIssue,
+        requestSha256: hash,
+        transmittedRequest: prepared.request,
+        requestMeasurements: prepared.measurements,
+        timingMs: {
+          preparation: round(preparationMs),
+          transport: round(transportMs),
+          totalAdded: round(totalAddedMs),
+        },
+        estimatorError,
+      },
+    });
+  }
+
+  const comparison = deriveJevReplayComparison(lexicalBaseline, cases, plan.thresholds);
+
+  const operations = deriveJevReplayOperations(cases);
+  const maximumUnderestimateRatio = operations.estimatorError.maximumUnderestimateRatio;
+  const estimatorCalibrationAccepted =
+    evidenceSource === "native-api" &&
+    plan.input.kind === "private-reviewed" &&
+    operations.providerReportedUsageResponses >=
+      plan.thresholds.calibrationMinimumObservedRequests &&
+    operations.requestsWithUnknownUsage === 0 &&
+    operations.providerReportedUsageResponses === operations.attemptedRequests &&
+    maximumUnderestimateRatio !== null &&
+    maximumUnderestimateRatio <= plan.thresholds.estimatorMaximumUnderestimateRatio;
+  const nativeApiRequestsDispatched =
+    evidenceSource === "native-api" && operations.attemptedRequests > 0;
+  const evidence: JevReplayReport["evidence"] = {
+    source: evidenceSource,
+    approvalEvidenceSha256: options.approval?.evidenceSha256 ?? null,
+    calibrationEvidenceSha256: options.calibration?.evidenceSha256 ?? null,
+    localRawEvidenceRetentionDays: options.approval?.localRawEvidenceRetentionDays ?? null,
+    localRetentionExtensionReference: options.approval?.localRetentionExtensionReference ?? null,
+    nativeApiRequestsDispatched,
+    estimatorCalibrationAccepted,
+    price: JEV_PRICE,
+  };
+  const gates = deriveJevReplayGates({
+    phase: options.phase,
+    plan,
+    lexicalBaseline,
+    evidence,
+    operations,
+    comparison,
+  });
   return {
     manifestVersion: 1,
     evaluator: "jev-replay-v1",
@@ -1042,52 +1243,10 @@ export const evaluateJevReplay = async (
       inputKind: plan.input.kind,
     },
     lexicalBaseline,
-    evidence: {
-      source: options.transport?.evidenceSource ?? "none",
-      approvalEvidenceSha256: options.approval?.evidenceSha256 ?? null,
-      calibrationEvidenceSha256: options.calibration?.evidenceSha256 ?? null,
-      localRawEvidenceRetentionDays: options.approval?.localRawEvidenceRetentionDays ?? null,
-      localRetentionExtensionReference: options.approval?.localRetentionExtensionReference ?? null,
-      actualApiUsage,
-      estimatorCalibrationAccepted,
-      price: JEV_PRICE,
-    },
-    operations: {
-      eligibleEvaluations,
-      attemptedRequests,
-      validJudgments,
-      completeWithinDeadline,
-      responsesWithValidUsage,
-      inputTokens,
-      outputTokens,
-      estimatedInputCostUsd: roundCost(
-        (inputTokens / 1_000_000) * JEV_PRICE.inputUsdPerMillionTokens,
-      ),
-      estimatorError: {
-        maximumUnderestimateRatio,
-        meanActualMinusEstimatedTokens:
-          estimatorDeltas.length === 0
-            ? null
-            : round(
-                estimatorDeltas.reduce((sum, value) => sum + value, 0) / estimatorDeltas.length,
-              ),
-      },
-      latencyMs: {
-        p50: percentile(latencies, 0.5),
-        p95,
-        maximum: maximumLatency,
-        cooperativeDeadlineOverruns: latencies.filter(
-          (latency) => latency > JEV_BOUNDS.proposed.cooperativeDeadlineMs,
-        ).length,
-      },
-      failures,
-    },
+    evidence,
+    operations,
     comparison,
     cases,
-    gates: {
-      status: uniqueReasons.length === 0 ? "PASS" : "BLOCKED",
-      readyForHeldOut,
-      reasons: uniqueReasons,
-    },
+    gates,
   };
 };

@@ -345,25 +345,33 @@ export type JevResponseFailureReason =
   | "answer-type"
   | "answer-range";
 
-export interface ValidatedJevResponse {
-  readonly ok: true;
-  readonly scoresByEntryId: Readonly<Record<string, number>>;
-  readonly usage: {
-    readonly inputTokens: number;
-    readonly outputTokens: number;
-  } | null;
+export interface JevReportedUsage {
+  readonly inputTokens: number;
+  readonly outputTokens: number;
+}
+
+export interface JevUsageProjection {
+  readonly usage: JevReportedUsage | null;
   readonly usageIssue: "invalid-usage" | null;
 }
 
-export interface RejectedJevResponse {
+export interface ValidatedJevResponse extends JevUsageProjection {
+  readonly ok: true;
+  readonly scoresByEntryId: Readonly<Record<string, number>>;
+}
+
+export interface RejectedJevResponse extends JevUsageProjection {
   readonly ok: false;
   readonly reason: JevResponseFailureReason;
 }
 
 export type JevResponseValidation = ValidatedJevResponse | RejectedJevResponse;
 
-const validateUsage = (value: unknown): ValidatedJevResponse["usage"] => {
-  if (!isRecord(value)) return null;
+export const projectJevUsage = (response: unknown): JevUsageProjection => {
+  if (!isRecord(response) || !isRecord(response.usage)) {
+    return { usage: null, usageIssue: "invalid-usage" };
+  }
+  const value = response.usage;
   if (
     !Number.isInteger(value.input_tokens) ||
     typeof value.input_tokens !== "number" ||
@@ -372,18 +380,28 @@ const validateUsage = (value: unknown): ValidatedJevResponse["usage"] => {
     typeof value.output_tokens !== "number" ||
     value.output_tokens < 0
   ) {
-    return null;
+    return { usage: null, usageIssue: "invalid-usage" };
   }
-  return { inputTokens: value.input_tokens, outputTokens: value.output_tokens };
+  return {
+    usage: { inputTokens: value.input_tokens, outputTokens: value.output_tokens },
+    usageIssue: null,
+  };
 };
 
 export const validateJevResponse = (
   response: unknown,
   binding: readonly JevQuestionBinding[],
 ): JevResponseValidation => {
-  if (!isRecord(response)) return { ok: false, reason: "response-object" };
-  if (response.model !== JEV_MODEL) return { ok: false, reason: "model" };
-  if (!isRecord(response.answers)) return { ok: false, reason: "answers-object" };
+  if (!isRecord(response)) {
+    return { ok: false, reason: "response-object", usage: null, usageIssue: "invalid-usage" };
+  }
+  const usageProjection = projectJevUsage(response);
+  if (response.model !== JEV_MODEL) {
+    return { ok: false, reason: "model", ...usageProjection };
+  }
+  if (!isRecord(response.answers)) {
+    return { ok: false, reason: "answers-object", ...usageProjection };
+  }
 
   const expectedKeys = binding.map(({ questionKey }) => questionKey).sort();
   const actualKeys = Object.keys(response.answers).sort();
@@ -391,31 +409,33 @@ export const validateJevResponse = (
     actualKeys.length !== expectedKeys.length ||
     actualKeys.some((key, index) => key !== expectedKeys[index])
   ) {
-    return { ok: false, reason: "answer-keys" };
+    return { ok: false, reason: "answer-keys", ...usageProjection };
   }
 
   const scores: Array<readonly [string, number]> = [];
   for (const { questionKey, entryId } of binding) {
     const answer = response.answers[questionKey];
-    if (!isRecord(answer)) return { ok: false, reason: "answer-object" };
-    if (answer.type !== "noul") return { ok: false, reason: "answer-type" };
+    if (!isRecord(answer)) {
+      return { ok: false, reason: "answer-object", ...usageProjection };
+    }
+    if (answer.type !== "noul") {
+      return { ok: false, reason: "answer-type", ...usageProjection };
+    }
     if (
       typeof answer.noul !== "number" ||
       !Number.isFinite(answer.noul) ||
       answer.noul < 0 ||
       answer.noul > 1
     ) {
-      return { ok: false, reason: "answer-range" };
+      return { ok: false, reason: "answer-range", ...usageProjection };
     }
     scores.push([entryId, answer.noul]);
   }
 
-  const usage = validateUsage(response.usage);
   return {
     ok: true,
     scoresByEntryId: Object.fromEntries(scores),
-    usage,
-    usageIssue: usage === null ? "invalid-usage" : null,
+    ...usageProjection,
   };
 };
 

@@ -16,15 +16,24 @@ export interface JevTransportResponse {
 }
 
 export interface JevTransport {
+  /** Informational only; evaluation evidence classification uses adapter provenance. */
   readonly evidenceSource: JevTransportEvidenceSource;
   send(request: JevTransportRequest): Promise<JevTransportResponse>;
 }
+
+const nativeTransports = new WeakSet<JevTransport>();
+
+export const jevTransportEvidenceSource = (
+  transport: JevTransport | undefined,
+): "none" | JevTransportEvidenceSource => {
+  if (!transport) return "none";
+  return nativeTransports.has(transport) ? "native-api" : "scripted";
+};
 
 export type TypeSafeHttpErrorCode =
   | "credential"
   | "deadline"
   | "network"
-  | "http-status"
   | "response-too-large"
   | "invalid-utf8";
 
@@ -123,8 +132,8 @@ export const createTypeSafeHttpTransport = (
   dependencies: TypeSafeHttpDependencies = {},
 ): JevTransport => {
   const fetchImpl = dependencies.fetchImpl ?? fetch;
-  return {
-    evidenceSource: "native-api",
+  const transport: JevTransport = {
+    evidenceSource: dependencies.fetchImpl ? "scripted" : "native-api",
     async send(request): Promise<JevTransportResponse> {
       if (request.apiKey.length === 0) {
         throw new TypeSafeHttpError("credential", "TypeSafe API key is unavailable");
@@ -161,13 +170,6 @@ export const createTypeSafeHttpTransport = (
           signal: controller.signal,
         });
         const body = await boundedBody(response, request.responseMaxUtf8Bytes, controller);
-        if (!response.ok) {
-          throw new TypeSafeHttpError(
-            "http-status",
-            `TypeSafe returned HTTP ${response.status}`,
-            response.status,
-          );
-        }
         return { status: response.status, body };
       } catch (error) {
         if (request.signal?.aborted) throw callerAbortReason(request.signal);
@@ -181,4 +183,6 @@ export const createTypeSafeHttpTransport = (
       }
     },
   };
+  if (!dependencies.fetchImpl) nativeTransports.add(transport);
+  return transport;
 };

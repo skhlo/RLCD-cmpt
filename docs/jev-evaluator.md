@@ -7,8 +7,10 @@ recall, add settings, cache judgments, scan session directories, or read
 credentials during preparation.
 
 `jev-1.13.0`, the prompt, response contract, budgets, thresholds, price source,
-and tuning/held-out input digests are frozen in a plan before held-out use. A
-plan remains `BLOCKED` until real approved calibration and held-out evidence
+tuning/held-out input digests, implementation provenance, and complete
+preparation record are frozen in a plan before held-out use. Every plan field is
+covered by the freeze digest; readers also validate preparation counts and gates.
+A plan remains `BLOCKED` until real approved calibration and held-out evidence
 exist. Synthetic fixtures and scripted transports test mechanics only and can
 never pass empirical quality, budget, cost, reliability, or latency gates.
 
@@ -85,13 +87,22 @@ These byte/field/deadline guards are project proposals, not vendor limits. A
 JavaScript deadline aborts fetch and body reads but cannot preempt a stalled event
 loop or synchronous work; observed overruns remain failures.
 
-The native adapter uses only
+The standard native adapter uses only
 `POST https://api.typesafe.ai/v1/systemone`, sets `redirect: "error"`, performs
 one attempt, reads the response incrementally under the body cap, and propagates
-aborts. Response JSON starts as `unknown`. Ranking requires the exact pinned
-model and complete `cN` key set, with every answer `{type:"noul", noul:[0,1]}`.
-Usage is validated independently: valid judgments can still rerank when usage is
-malformed, but budget and cost evidence remains blocked.
+caller aborts. Caller cancellation rejects the evaluation and stops later
+dispatch; internal deadline and ordinary transport failures retain the complete
+lexical order. Response JSON starts as `unknown`. Ranking requires the exact
+pinned model and complete `cN` key set, with every answer
+`{type:"noul", noul:[0,1]}`.
+
+Usage is projected independently of judgment validation. Provider-reported usage
+is retained for malformed, incomplete, non-success HTTP, and late responses when
+the bounded body supplies valid counters. Every dispatched request without valid
+usage is reported as unknown; its complete provider-reported cost is `null`, not
+zero, and estimator/budget acceptance stays blocked. Reports distinguish
+provider-reported tokens and cost, request-size estimates and estimated cost,
+unknown-cost request counts, and judgment/fallback outcomes.
 
 ## Approved calibration and held-out run
 
@@ -111,8 +122,9 @@ reads `TYPESAFE_API_KEY` only after plan, phase, calibration, and approval
 preflight. It requires a dedicated mode-0700 output directory, creates a new
 evidence file with mode 0600, and refuses to overwrite one. The report contains
 the exact transmitted wire request (without credentials), local binding,
-validated judgments, actual usage, estimator error, end-to-end added latency,
-failures, and cost derived from actual input tokens.
+validated judgments, provider-reported or explicitly unknown usage, estimator
+error, end-to-end added latency, failures, and cost derived from reported input
+tokens when complete.
 
 Approval JSON binds one phase to the frozen plan:
 
@@ -139,11 +151,17 @@ Approval JSON binds one phase to the frozen plan:
 limited to no more than seven days; a larger value is rejected unless the
 approval also contains a non-empty `localRetentionExtensionReference`. Deletion
 still requires operator authorization. Private calibration must contain at least
-ten native API responses with valid usage and demonstrate
-that the frozen estimator did not underestimate actual input usage. A synthetic
-or scripted calibration never qualifies. A live held-out command additionally
-requires `--calibration <qualified-calibration-report>` from the same frozen plan;
-there is no path that performs live held-out first.
+ten native API responses with valid provider-reported usage for every dispatched
+request and demonstrate that the frozen estimator did not underestimate reported
+input usage. A synthetic or scripted calibration never qualifies. Supplying a
+fetch implementation or CLI transport factory always marks that adapter as
+scripted, even if the injected object labels itself native. This is a guard
+against accidental evidence misclassification, not an attestation mechanism or
+a claim of protection from arbitrary local program changes. A live held-out
+command additionally requires `--calibration <qualified-calibration-report>`
+from the same frozen plan; the CLI validates the complete report, recomputes its
+aggregates and gates, and binds its plan, implementation, and input before
+admission. There is no path that performs live held-out first.
 
 A held-out report keeps candidate misses separate from rank misses, compares
 answer@5 and mean reciprocal rank on all answerable queries, counts promotions
@@ -155,6 +173,7 @@ After a person reviews every listed item, bind that evidence to the exact report
 
 ```sh
 pnpm --silent replay:jev -- assess \
+  --plan /path/to/frozen-plan.json \
   --report ~/.local/state/RLCD-cmpt/evaluations/<run-id>/held-out.json \
   --review-evidence /path/to/review.json
 ```
@@ -162,8 +181,10 @@ pnpm --silent replay:jev -- assess \
 Review evidence names the reviewer/date, sets `heldOutEvidenceSha256`, and has one
 item per pending query with a non-empty note and one of
 `acceptable-change`, `confirmed-regression`, `model-error`, or `label-error`.
-Assessment removes only the missing-review blocker; all measured failures remain.
-A reported label error adds a blocker.
+Assessment first validates every case, recomputes operations, comparisons, and
+base gates, and binds the report to the frozen plan and executable. It then
+removes only the missing-review blocker; all measured failures remain. A reported
+label error adds a blocker.
 
 ## Frozen pilot thresholds
 
@@ -172,13 +193,17 @@ A reported label error adds a blocker.
   outside-to-inside top-five promotions
 - mean reciprocal rank delta at least zero
 - zero consequential first-page regressions
-- zero no-answer candidates at or above 0.9 support
-- zero adversarial no-answer candidates at or above 0.9 support
+- complete valid timely judgments for every eligible no-answer case, then zero
+  candidates at or above 0.9 support; zero-candidate cases are reported but are
+  not model-quality evidence
+- complete valid timely judgments for every eligible adversarial no-answer case,
+  then zero candidates at or above 0.9 support
 - at least 95% complete valid responses within the deadline
 - added-work p95 at most 1,000 ms and no observed attempt over 1,200 ms
 
 The input price source frozen in the plan is TypeSafe's model page as retrieved on
 2026-09-19: $0.042 per million input tokens, output free. It is mutable public
-documentation, not a contractual quote. Cost is reported from valid API usage,
-not inferred from model correctness. The later 100-evaluation, five-session live
+documentation, not a contractual quote. Provider-reported and estimated costs are
+separate; complete provider-reported cost stays unknown if any dispatched request
+lacks valid usage. Cost is not inferred from model correctness. The later 100-evaluation, five-session live
 shadow gate is explicitly not a prerequisite for this offline evaluator.

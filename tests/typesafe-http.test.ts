@@ -42,23 +42,31 @@ describe("native TypeSafe HTTP adapter", () => {
         signal: expect.any(AbortSignal),
       },
     });
-    expect(transport.evidenceSource).toBe("native-api");
   });
 
-  it("reads an HTTP error body only once and never retries", async () => {
+  it("labels an injected fetch as scripted evidence", () => {
+    const transport = createTypeSafeHttpTransport({
+      fetchImpl: async () => new Response("{}", { status: 200 }),
+    });
+
+    expect(transport.evidenceSource).toBe("scripted");
+  });
+
+  it("labels the standard non-injected adapter as native API evidence", () => {
+    expect(createTypeSafeHttpTransport().evidenceSource).toBe("native-api");
+  });
+
+  it("returns a bounded HTTP error response once so usage can be projected", async () => {
     let calls = 0;
+    const body = '{"error":"slow down","usage":{"input_tokens":12,"output_tokens":0}}';
     const transport = createTypeSafeHttpTransport({
       fetchImpl: async () => {
         calls++;
-        return new Response('{"error":"slow down"}', { status: 429 });
+        return new Response(body, { status: 429 });
       },
     });
 
-    await expect(transport.send(request())).rejects.toMatchObject({
-      name: "TypeSafeHttpError",
-      code: "http-status",
-      status: 429,
-    });
+    await expect(transport.send(request())).resolves.toEqual({ status: 429, body });
     expect(calls).toBe(1);
   });
 
