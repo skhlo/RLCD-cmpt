@@ -44,6 +44,7 @@ export default defineConfig({
   entry: {
     index: "index.ts",
     "replay-evaluator": "src/evaluation/replay-cli.ts",
+    "jev-evaluator": "src/evaluation/jev-cli.ts",
   },
   format: ["esm"],
   outDir: "dist",

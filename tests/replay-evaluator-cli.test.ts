@@ -13,6 +13,7 @@ interface CliFixture {
 }
 
 const cliPath = join(process.cwd(), "dist", "replay-evaluator.js");
+const jevCliPath = join(process.cwd(), "dist", "jev-evaluator.js");
 
 const answerableLabel = {
   queryId: "decision-query",
@@ -121,6 +122,50 @@ beforeAll(() => {
   if (result.status !== 0) {
     throw new Error(`CLI build failed:\n${result.stdout}\n${result.stderr}`);
   }
+});
+
+describe("Jev replay CLI executable", () => {
+  it("prepares the public synthetic inputs without network evidence", () => {
+    const root = join(process.cwd(), "fixtures", "replay", "public-v1");
+    const result = spawnSync(
+      process.execPath,
+      [
+        jevCliPath,
+        "prepare",
+        "--corpus",
+        join(root, "tuning", "corpus.jsonl"),
+        "--queries",
+        join(root, "tuning", "queries.json"),
+        "--truth",
+        join(root, "tuning", "truth.json"),
+        "--partition",
+        "tuning",
+        "--held-out-corpus",
+        join(root, "held-out", "corpus.jsonl"),
+        "--held-out-queries",
+        join(root, "held-out", "queries.json"),
+        "--held-out-truth",
+        join(root, "held-out", "truth.json"),
+        "--input-kind",
+        "synthetic",
+      ],
+      { cwd: process.cwd(), encoding: "utf8", env: {} },
+    );
+    const report: unknown = JSON.parse(result.stdout);
+
+    expect({ status: result.status, stderr: result.stderr, report }).toMatchObject({
+      status: 0,
+      stderr: "",
+      report: {
+        evaluator: "jev-evaluation-plan-v1",
+        preparation: { status: "READY_FOR_CALIBRATION", failedQueries: 0 },
+        gates: {
+          status: "BLOCKED",
+          reasons: expect.arrayContaining(["synthetic-input-cannot-pass-empirical-gates"]),
+        },
+      },
+    });
+  });
 });
 
 describe("lexical replay CLI", () => {
