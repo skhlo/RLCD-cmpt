@@ -6,6 +6,7 @@ import {
   JEV_EVALUATION_THRESHOLDS,
   JEV_PRICE,
   createJevEvaluationPlan,
+  deriveEstimatorCalibrationAccepted,
   deriveJevReplayGates,
   evaluateJevReplay,
   type JevReplayReport,
@@ -257,16 +258,6 @@ describe("Jev evaluation gate policy", () => {
       });
       const lexicalBaseline = evaluateLexicalReplay(tuning.fixture, implementation);
       // Policy literals only: no transport ran, and these are not empirical quality or budget evidence.
-      const evidence: JevReplayReport["evidence"] = {
-        source: "native-api",
-        approvalEvidenceSha256: "a".repeat(64),
-        calibrationEvidenceSha256: null,
-        localRawEvidenceRetentionDays: 7,
-        localRetentionExtensionReference: null,
-        nativeApiRequestsDispatched: true,
-        estimatorCalibrationAccepted: true,
-        price: JEV_PRICE,
-      };
       const operations: JevReplayReport["operations"] = {
         eligibleEvaluations: 11,
         attemptedRequests: 11,
@@ -295,6 +286,22 @@ describe("Jev evaluation gate policy", () => {
         },
         failures: [],
       };
+      const estimatorCalibrationAccepted = deriveEstimatorCalibrationAccepted({
+        source: "native-api",
+        inputKind: "private-reviewed",
+        operations,
+        thresholds: plan.thresholds,
+      });
+      const evidence: JevReplayReport["evidence"] = {
+        source: "native-api",
+        approvalEvidenceSha256: "a".repeat(64),
+        calibrationEvidenceSha256: null,
+        localRawEvidenceRetentionDays: 7,
+        localRetentionExtensionReference: null,
+        nativeApiRequestsDispatched: true,
+        estimatorCalibrationAccepted,
+        price: JEV_PRICE,
+      };
       const comparison: JevReplayReport["comparison"] = {
         candidateMisses: 0,
         candidateMissDetails: [],
@@ -322,8 +329,9 @@ describe("Jev evaluation gate policy", () => {
         adversarialHighSupport: [],
       };
 
-      expect(
-        deriveJevReplayGates({
+      expect({
+        estimatorCalibrationAccepted,
+        gates: deriveJevReplayGates({
           phase: "calibration",
           plan,
           lexicalBaseline,
@@ -331,7 +339,10 @@ describe("Jev evaluation gate policy", () => {
           operations,
           comparison,
         }),
-      ).toEqual({ status: "PASS", readyForHeldOut: true, reasons: [] });
+      }).toEqual({
+        estimatorCalibrationAccepted: true,
+        gates: { status: "PASS", readyForHeldOut: true, reasons: [] },
+      });
     } finally {
       rmSync(tuning.dir, { recursive: true });
       rmSync(heldOut.dir, { recursive: true });

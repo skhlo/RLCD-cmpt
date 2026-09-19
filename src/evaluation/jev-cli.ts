@@ -21,6 +21,7 @@ import {
   JEV_EVALUATION_THRESHOLDS,
   JEV_PRICE,
   createJevEvaluationPlan,
+  deriveEstimatorCalibrationAccepted,
   deriveJevReplayComparison,
   deriveJevReplayGates,
   deriveJevReplayOperations,
@@ -611,16 +612,12 @@ const readValidatedReplayReport = (
 
   const operations = deriveJevReplayOperations(value.cases);
   const comparison = deriveJevReplayComparison(value.lexicalBaseline, value.cases, plan.thresholds);
-  const estimatorCalibrationAccepted =
-    value.evidence.source === "native-api" &&
-    plan.input.kind === "private-reviewed" &&
-    operations.providerReportedUsageResponses >=
-      plan.thresholds.calibrationMinimumObservedRequests &&
-    operations.requestsWithUnknownUsage === 0 &&
-    operations.providerReportedUsageResponses === operations.attemptedRequests &&
-    operations.estimatorError.maximumUnderestimateRatio !== null &&
-    operations.estimatorError.maximumUnderestimateRatio <=
-      plan.thresholds.estimatorMaximumUnderestimateRatio;
+  const estimatorCalibrationAccepted = deriveEstimatorCalibrationAccepted({
+    source: value.evidence.source,
+    inputKind: plan.input.kind,
+    operations,
+    thresholds: plan.thresholds,
+  });
   if (
     !sameJson(value.operations, operations) ||
     !sameJson(value.comparison, comparison) ||

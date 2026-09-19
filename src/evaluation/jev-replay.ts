@@ -311,6 +311,22 @@ export interface JevReplayReport {
   };
 }
 
+export const deriveEstimatorCalibrationAccepted = (input: {
+  readonly source: JevReplayReport["evidence"]["source"];
+  readonly inputKind: JevEvaluationInputKind;
+  readonly operations: JevReplayReport["operations"];
+  readonly thresholds: typeof JEV_EVALUATION_THRESHOLDS;
+}): boolean =>
+  input.source === "native-api" &&
+  input.inputKind === "private-reviewed" &&
+  input.operations.providerReportedUsageResponses >=
+    input.thresholds.calibrationMinimumObservedRequests &&
+  input.operations.requestsWithUnknownUsage === 0 &&
+  input.operations.providerReportedUsageResponses === input.operations.attemptedRequests &&
+  input.operations.estimatorError.maximumUnderestimateRatio !== null &&
+  input.operations.estimatorError.maximumUnderestimateRatio <=
+    input.thresholds.estimatorMaximumUnderestimateRatio;
+
 const sha256 = (value: string): string => createHash("sha256").update(value).digest("hex");
 const requestSha256 = (prepared: PreparedJevRequest): string =>
   sha256(`${prepared.body}\n${JSON.stringify(prepared.binding)}`);
@@ -1200,16 +1216,12 @@ export const evaluateJevReplay = async (
   const comparison = deriveJevReplayComparison(lexicalBaseline, cases, plan.thresholds);
 
   const operations = deriveJevReplayOperations(cases);
-  const maximumUnderestimateRatio = operations.estimatorError.maximumUnderestimateRatio;
-  const estimatorCalibrationAccepted =
-    evidenceSource === "native-api" &&
-    plan.input.kind === "private-reviewed" &&
-    operations.providerReportedUsageResponses >=
-      plan.thresholds.calibrationMinimumObservedRequests &&
-    operations.requestsWithUnknownUsage === 0 &&
-    operations.providerReportedUsageResponses === operations.attemptedRequests &&
-    maximumUnderestimateRatio !== null &&
-    maximumUnderestimateRatio <= plan.thresholds.estimatorMaximumUnderestimateRatio;
+  const estimatorCalibrationAccepted = deriveEstimatorCalibrationAccepted({
+    source: evidenceSource,
+    inputKind: plan.input.kind,
+    operations,
+    thresholds: plan.thresholds,
+  });
   const nativeApiRequestsDispatched =
     evidenceSource === "native-api" && operations.attemptedRequests > 0;
   const evidence: JevReplayReport["evidence"] = {
