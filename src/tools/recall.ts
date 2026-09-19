@@ -9,7 +9,12 @@ import { StringEnum } from "@earendil-works/pi-ai";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { loadAllMessages } from "../core/load-messages";
 import { clip } from "../core/content";
-import { searchEntriesDetailed, getFileIndicators, getTouchedFiles } from "../core/search-entries";
+import {
+  planSearchQuery,
+  searchEntriesDetailedWithPlan,
+  getFileIndicators,
+  getTouchedFiles,
+} from "../core/search-entries";
 import type { RenderedEntry } from "../core/render-entries";
 import type { SearchHit } from "../core/search-entries";
 import { formatRecallEntry, formatTouchedOutput } from "../core/format-recall";
@@ -189,8 +194,9 @@ async function vccRecall(
   }
 
   const { rendered: msgs, rawMessages } = loadAllMessages(sessionFile, false, lineageEntryIds);
-  const searchResult = params.query?.trim()
-    ? searchEntriesDetailed(msgs, rawMessages, params.query, undefined, mode)
+  const queryPlan = planSearchQuery(params.query);
+  const searchResult = queryPlan
+    ? searchEntriesDetailedWithPlan(msgs, rawMessages, queryPlan, undefined, mode)
     : undefined;
   let allResults: SearchHit[] = searchResult
     ? searchResult.hits
@@ -216,7 +222,7 @@ async function vccRecall(
     allResults = mergeExpandedIntoSearchResults(allResults, expandedFullEntries);
   }
 
-  if (params.query?.trim()) {
+  if (queryPlan) {
     const page = Math.max(1, params.page ?? 1);
     const truncationNote = searchResult?.truncated
       ? ` — showing ${searchResult.hits.length} of ${searchResult.totalBeforeCap} matches, refine your query for more precise results`
@@ -402,7 +408,7 @@ async function omRecall(memoryId: string, ctx: any, maxChars = DEFAULT_RECALL_RE
 // ── Unified recall tool ──────────────────────────────────────────────────
 
 export function registerRecallTool(
-  pi: ExtensionAPI,
+  pi: Pick<ExtensionAPI, "registerTool">,
   omRuntime?: { config?: { recallResponseMaxChars?: number } },
 ): void {
   // Resolved per call (not once at registration): omRuntime.config is a live

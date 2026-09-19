@@ -12,7 +12,11 @@
  */
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { loadAllMessages } from "../core/load-messages.js";
-import { searchEntriesDetailed, getTouchedFiles } from "../core/search-entries.js";
+import {
+  planSearchQuery,
+  searchEntriesDetailedWithPlan,
+  getTouchedFiles,
+} from "../core/search-entries.js";
 import { formatRecallOutput, formatTouchedOutput } from "../core/format-recall.js";
 import { getActiveLineageEntryIds } from "../core/lineage.js";
 import { parseRecallScope } from "../core/recall-scope.js";
@@ -46,7 +50,9 @@ async function augmentWithObservations(
   return output;
 }
 
-export const registerVccRecallCommand = (pi: ExtensionAPI) => {
+export const registerVccRecallCommand = (
+  pi: Pick<ExtensionAPI, "registerCommand" | "sendMessage">,
+) => {
   pi.registerCommand("blackhole-recall", {
     description:
       "Search session history. Defaults to active lineage. Usage: /blackhole-recall <query> [page:N] [scope:all] [mode:file|touched]",
@@ -92,9 +98,9 @@ export const registerVccRecallCommand = (pi: ExtensionAPI) => {
       // Parse page:N from args
       const pageMatch = parsed.text.match(/\bpage:(\d+)\b/i);
       const page = pageMatch ? Math.max(1, parseInt(pageMatch[1], 10)) : 1;
-      const query = parsed.text.replace(/\bpage:\d+\b/i, "").trim();
+      const queryPlan = planSearchQuery(parsed.text.replace(/\bpage:\d+\b/i, ""));
 
-      if (!query) {
+      if (!queryPlan) {
         const { rendered } = loadAllMessages(sessionFile, false, lineageEntryIds);
         const recent = rendered.slice(-DEFAULT_RECENT);
         const base = (parsed.scope === "all" ? "Scope: all\n\n" : "") + formatRecallOutput(recent);
@@ -106,12 +112,13 @@ export const registerVccRecallCommand = (pi: ExtensionAPI) => {
         return;
       }
 
+      const query = queryPlan.query;
       const { rendered, rawMessages } = loadAllMessages(sessionFile, false, lineageEntryIds);
       const {
         hits: allResults,
         totalBeforeCap,
         truncated,
-      } = searchEntriesDetailed(rendered, rawMessages, query, undefined, mode);
+      } = searchEntriesDetailedWithPlan(rendered, rawMessages, queryPlan, undefined, mode);
 
       const start = (page - 1) * PAGE_SIZE;
       const pageResults = allResults.slice(start, start + PAGE_SIZE);

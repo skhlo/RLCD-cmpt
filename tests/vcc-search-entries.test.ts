@@ -3,7 +3,12 @@
  * Changes: bun:test → vitest, added .js import extensions
  */
 import { describe, it, expect } from "vitest";
-import { searchEntries, searchEntriesDetailed } from "../src/core/search-entries.js";
+import {
+  planSearchQuery,
+  searchEntries,
+  searchEntriesDetailed,
+  searchEntriesDetailedWithPlan,
+} from "../src/core/search-entries.js";
 import type { RenderedEntry } from "../src/core/render-entries.js";
 import type { Message } from "@earendil-works/pi-ai";
 
@@ -33,6 +38,133 @@ const messages: Message[] = [
     content: [{ type: "text", text: "Found the root cause in auth module" }],
   } as any,
 ];
+
+const requireQueryPlan = (query: string) => {
+  const plan = planSearchQuery(query);
+  if (!plan) throw new Error(`expected a query plan for ${query}`);
+  return plan;
+};
+
+const requireOnlyTerm = (query: string) => {
+  const plan = requireQueryPlan(query);
+  if (plan.terms.length !== 1) throw new Error(`expected one search term for ${query}`);
+  const [term] = plan.terms;
+  if (!term) throw new Error(`expected a compiled search term for ${query}`);
+  return term;
+};
+
+describe("planSearchQuery", () => {
+  it.each([
+    {
+      label: "an ordinary term",
+      query: "login",
+      expected: {
+        query: "login",
+        intent: "literal",
+        eligibleForReranking: true,
+        allTermIntents: ["literal"],
+        searchTerms: ["login"],
+      },
+    },
+    {
+      label: "a dotted filename",
+      query: "  observer.ts  ",
+      expected: {
+        query: "observer.ts",
+        intent: "literal",
+        eligibleForReranking: true,
+        allTermIntents: ["literal"],
+        searchTerms: ["observer.ts"],
+      },
+    },
+    {
+      label: "an operator-bearing term",
+      query: "login|auth",
+      expected: {
+        query: "login|auth",
+        intent: "pattern",
+        eligibleForReranking: false,
+        allTermIntents: ["pattern"],
+        searchTerms: ["login|auth"],
+      },
+    },
+    {
+      label: "a question-mark term",
+      query: "colou?r",
+      expected: {
+        query: "colou?r",
+        intent: "pattern",
+        eligibleForReranking: false,
+        allTermIntents: ["pattern"],
+        searchTerms: ["colou?r"],
+      },
+    },
+    {
+      label: "mixed literal and pattern terms",
+      query: "observer.ts login|auth",
+      expected: {
+        query: "observer.ts login|auth",
+        intent: "pattern",
+        eligibleForReranking: false,
+        allTermIntents: ["literal", "pattern"],
+        searchTerms: ["observer.ts", "login|auth"],
+      },
+    },
+  ])("classifies $label as one coherent query plan", ({ query, expected }) => {
+    const plan = requireQueryPlan(query);
+
+    expect({
+      query: plan.query,
+      intent: plan.intent,
+      eligibleForReranking: plan.eligibleForReranking,
+      allTermIntents: plan.allTerms.map((term) => term.intent),
+      searchTerms: plan.terms.map((term) => term.term),
+    }).toEqual(expected);
+  });
+
+  it.each([
+    {
+      label: "a dotted filename literally",
+      query: "observer.ts",
+      samples: ["observer.ts", "observerXts"],
+      expected: [true, false],
+    },
+    {
+      label: "an alternation as a pattern",
+      query: "login|auth",
+      samples: ["login", "auth", "logout"],
+      expected: [true, true, false],
+    },
+    {
+      label: "a question mark as a pattern operator",
+      query: "colou?r",
+      samples: ["color", "colour", "colouur"],
+      expected: [true, true, false],
+    },
+  ])("compiles $label", ({ query, samples, expected }) => {
+    const term = requireOnlyTerm(query);
+
+    expect(samples.map((sample) => term.pattern.test(sample))).toEqual(expected);
+  });
+
+  it("preserves the detailed result structure through a query plan", () => {
+    const plan = requireQueryPlan("login");
+
+    expect(searchEntriesDetailedWithPlan(entries, messages, plan)).toEqual({
+      hits: [
+        {
+          index: 0,
+          role: "user",
+          summary: "Fix login bug",
+          snippet: "Fix login bug",
+          matchCount: 1,
+        },
+      ],
+      totalBeforeCap: 1,
+      truncated: false,
+    });
+  });
+});
 
 describe("searchEntries", () => {
   it("returns all for empty query", () => {

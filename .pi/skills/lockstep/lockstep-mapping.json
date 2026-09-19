@@ -137,7 +137,8 @@
       "upstream": "pi-vcc",
       "path": "src/core/search-entries.ts",
       "ours": "src/core/search-entries.ts",
-      "status": "UNCHANGED"
+      "status": "MODIFIED",
+      "_note": "Added shared parser-owned query plans while preserving upstream search behavior."
     },
     {
       "upstream": "pi-vcc",
