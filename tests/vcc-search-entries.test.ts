@@ -3,7 +3,12 @@
  * Changes: bun:test → vitest, added .js import extensions
  */
 import { describe, it, expect } from "vitest";
-import { searchEntries, searchEntriesDetailed } from "../src/core/search-entries.js";
+import {
+  planSearchQuery,
+  searchEntries,
+  searchEntriesDetailed,
+  searchEntriesDetailedWithPlan,
+} from "../src/core/search-entries.js";
 import type { RenderedEntry } from "../src/core/render-entries.js";
 import type { Message } from "@earendil-works/pi-ai";
 
@@ -33,6 +38,58 @@ const messages: Message[] = [
     content: [{ type: "text", text: "Found the root cause in auth module" }],
   } as any,
 ];
+
+describe("planSearchQuery", () => {
+  it("keeps dotted filenames literal", () => {
+    const plan = planSearchQuery("observer.ts");
+
+    expect(plan?.intent).toBe("literal");
+    expect(plan?.eligibleForReranking).toBe(true);
+    expect(plan?.terms).toHaveLength(1);
+    expect(plan?.terms[0]?.intent).toBe("literal");
+    expect(plan?.terms[0]?.pattern.test("observer.ts")).toBe(true);
+    expect(plan?.terms[0]?.pattern.test("observerXts")).toBe(false);
+  });
+
+  it("keeps operator-bearing terms as patterns", () => {
+    const plan = planSearchQuery("login|auth");
+
+    expect(plan?.intent).toBe("pattern");
+    expect(plan?.eligibleForReranking).toBe(false);
+    expect(plan?.terms).toHaveLength(1);
+    expect(plan?.terms[0]?.intent).toBe("pattern");
+    expect(plan?.terms[0]?.pattern.test("login")).toBe(true);
+    expect(plan?.terms[0]?.pattern.test("auth")).toBe(true);
+  });
+
+  it("keeps question marks as pattern operators", () => {
+    const plan = planSearchQuery("colou?r");
+
+    expect(plan?.intent).toBe("pattern");
+    expect(plan?.eligibleForReranking).toBe(false);
+    expect(plan?.terms[0]?.pattern.test("color")).toBe(true);
+    expect(plan?.terms[0]?.pattern.test("colour")).toBe(true);
+  });
+
+  it("preserves the detailed result structure through a query plan", () => {
+    const plan = planSearchQuery("login");
+    if (!plan) throw new Error("expected a query plan");
+
+    expect(searchEntriesDetailedWithPlan(entries, messages, plan)).toEqual({
+      hits: [
+        {
+          index: 0,
+          role: "user",
+          summary: "Fix login bug",
+          snippet: "Fix login bug",
+          matchCount: 1,
+        },
+      ],
+      totalBeforeCap: 1,
+      truncated: false,
+    });
+  });
+});
 
 describe("searchEntries", () => {
   it("returns all for empty query", () => {

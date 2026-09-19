@@ -12,7 +12,11 @@
  */
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { loadAllMessages } from "../core/load-messages.js";
-import { searchEntriesDetailed, getTouchedFiles } from "../core/search-entries.js";
+import {
+  planSearchQuery,
+  searchEntriesDetailedWithPlan,
+  getTouchedFiles,
+} from "../core/search-entries.js";
 import { formatRecallOutput, formatTouchedOutput } from "../core/format-recall.js";
 import { getActiveLineageEntryIds } from "../core/lineage.js";
 import { parseRecallScope } from "../core/recall-scope.js";
@@ -106,12 +110,15 @@ export const registerVccRecallCommand = (pi: ExtensionAPI) => {
         return;
       }
 
+      const queryPlan = planSearchQuery(query);
+      if (!queryPlan) return;
+
       const { rendered, rawMessages } = loadAllMessages(sessionFile, false, lineageEntryIds);
       const {
         hits: allResults,
         totalBeforeCap,
         truncated,
-      } = searchEntriesDetailed(rendered, rawMessages, query, undefined, mode);
+      } = searchEntriesDetailedWithPlan(rendered, rawMessages, queryPlan, undefined, mode);
 
       const start = (page - 1) * PAGE_SIZE;
       const pageResults = allResults.slice(start, start + PAGE_SIZE);

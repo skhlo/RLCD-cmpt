@@ -2,7 +2,7 @@
  * Search entries — BM25 + regex search over session history.
  *
  * Upstream: https://github.com/sting8k/pi-vcc (src/core/search-entries.ts)
- * Unmodified.
+ * Fork changes: shared parser-owned query plans for both recall surfaces.
  */
 import type { Message } from "@earendil-works/pi-ai";
 import type { RenderedEntry } from "./render-entries";
@@ -76,27 +76,35 @@ const literalRegex = (term: string): RegExp => new RegExp(escapeRegex(term), "i"
  */
 const REGEX_TERM_HINT = /[|*+?{}()[\]\\^$]/;
 
+export type SearchTermIntent = "literal" | "pattern";
+
+/** A query term paired with the parser-owned intent and compiled matcher. */
+export interface SearchTermPlan {
+  readonly term: string;
+  readonly intent: SearchTermIntent;
+  readonly pattern: RegExp;
+}
+
 /**
  * Compile one query term: operator-bearing terms stay regex patterns
  * (invalid ones fall back to an escaped literal via safeRegex), plain terms —
  * including dotted filenames — match literally, so "observer.ts" never
  * matches "observerXts". Never throws.
  */
-const compileTerm = (term: string): RegExp =>
-  REGEX_TERM_HINT.test(term) ? safeRegex(term) : literalRegex(term);
+const compileTerm = (term: string): SearchTermPlan => {
+  const intent = REGEX_TERM_HINT.test(term) ? "pattern" : "literal";
+  return {
+    term,
+    intent,
+    pattern: intent === "pattern" ? safeRegex(term) : literalRegex(term),
+  };
+};
 
-/** A query term paired with its matcher (compiled once per search). */
-interface CompiledTerm {
-  term: string;
-  pattern: RegExp;
-}
+const compileTerms = (terms: readonly string[]): SearchTermPlan[] => terms.map(compileTerm);
 
-const compileTerms = (terms: string[]): CompiledTerm[] =>
-  terms.map((term) => ({ term, pattern: compileTerm(term) }));
-
-/** Build a matcher over per-term patterns — matches first available term. */
-const snippetRegex = (terms: string[]): RegExp => {
-  const alts = terms.map((t) => compileTerm(t).source);
+/** Build a matcher over compiled per-term patterns — matches first available term. */
+const snippetRegex = (terms: readonly SearchTermPlan[]): RegExp => {
+  const alts = terms.map(({ pattern }) => pattern.source);
   return new RegExp(alts.join("|"), "i");
 };
 
@@ -193,14 +201,46 @@ const STOPWORDS = new Set([
 ]);
 
 /** Remove stopwords, keep meaningful terms. */
-const filterStopwords = (terms: string[]): string[] => {
-  const meaningful = terms.filter((t) => !STOPWORDS.has(t.toLowerCase()) && t.length > 1);
+const filterStopwords = (terms: readonly SearchTermPlan[]): readonly SearchTermPlan[] => {
+  const meaningful = terms.filter(
+    ({ term }) => !STOPWORDS.has(term.toLowerCase()) && term.length > 1,
+  );
   // If all terms were stopwords, return original (don't lose everything)
   return meaningful.length > 0 ? meaningful : terms;
 };
 
+/** One parser-owned interpretation shared by search and both recall surfaces. */
+export interface SearchQueryPlan {
+  /** Full query with outer whitespace removed; internal wording is unchanged. */
+  readonly query: string;
+  /** Pattern when any term contains a regex operator, otherwise literal. */
+  readonly intent: SearchTermIntent;
+  /** Query-syntax eligibility only; callers still enforce route and mode exclusions. */
+  readonly eligibleForReranking: boolean;
+  /** Every compiled term, including stopwords, for file-match snippets. */
+  readonly allTerms: readonly SearchTermPlan[];
+  /** The compiled terms used by the existing BM25 and transcript-snippet search. */
+  readonly terms: readonly SearchTermPlan[];
+}
+
+/** Parse and compile a query once without changing its existing search meaning. */
+export const planSearchQuery = (query?: string): SearchQueryPlan | undefined => {
+  const rawQuery = query?.trim();
+  if (!rawQuery) return undefined;
+
+  const allTerms = compileTerms(rawQuery.split(/\s+/));
+  const intent = allTerms.some((term) => term.intent === "pattern") ? "pattern" : "literal";
+  return {
+    query: rawQuery,
+    intent,
+    eligibleForReranking: intent === "literal",
+    allTerms,
+    terms: filterStopwords(allTerms),
+  };
+};
+
 /** Count how many distinct terms match the haystack. */
-const countMatches = (hay: string, compiled: CompiledTerm[]): number => {
+const countMatches = (hay: string, compiled: readonly SearchTermPlan[]): number => {
   let count = 0;
   for (const c of compiled) {
     if (c.pattern.test(hay)) count++;
@@ -226,7 +266,7 @@ interface BM25Context {
 }
 
 /** Precompute IDF and avgDl across all docs. */
-const buildBM25Context = (docs: string[], compiled: CompiledTerm[]): BM25Context => {
+const buildBM25Context = (docs: string[], compiled: readonly SearchTermPlan[]): BM25Context => {
   const n = docs.length;
   const df = new Map<string, number>();
   let totalLen = 0;
@@ -244,7 +284,7 @@ const buildBM25Context = (docs: string[], compiled: CompiledTerm[]): BM25Context
 };
 
 /** BM25+ score for a single doc against query terms. */
-const bm25Score = (doc: string, compiled: CompiledTerm[], ctx: BM25Context): number => {
+const bm25Score = (doc: string, compiled: readonly SearchTermPlan[], ctx: BM25Context): number => {
   const dl = doc.split(/\s+/).length;
   let score = 0;
 
@@ -402,14 +442,9 @@ export function getFileIndicators(msg: Message): FileMatch[] {
   return fileMatches;
 }
 
-function computeFileMatches(msg: Message | undefined, query: string): FileMatch[] {
+function computeFileMatches(msg: Message | undefined, plan: SearchQueryPlan): FileMatch[] {
   if (!msg?.content || typeof msg.content === "string") return [];
-  const rawQuery = query.trim();
-  const hasQuery = rawQuery.length > 0;
-  if (!hasQuery) return getFileIndicators(msg as Message);
-  // Per-term matchers: operator-bearing terms stay patterns, plain terms
-  // (including dotted filenames) match literally.
-  const regex = snippetRegex(rawQuery.split(/\s+/));
+  const regex = snippetRegex(plan.allTerms);
   const fileMatches: FileMatch[] = [];
 
   for (const part of msg.content) {
@@ -490,29 +525,19 @@ const capHits = (hits: SearchHit[], cap: number): SearchResult => {
   };
 };
 
-export const searchEntriesDetailed = (
+export const searchEntriesDetailedWithPlan = (
   entries: RenderedEntry[],
   messages: Message[],
-  query?: string,
+  plan: SearchQueryPlan | undefined,
   tuning?: SearchTuning,
   mode?: RecallMode,
 ): SearchResult => {
-  if (!query?.trim()) return { hits: entries, totalBeforeCap: entries.length, truncated: false };
+  if (!plan) return { hits: entries, totalBeforeCap: entries.length, truncated: false };
 
   const relativeFloor = tuning?.relativeFloor ?? BM25_RELATIVE_FLOOR;
   const cap = tuning?.cap ?? SEARCH_RESULT_CAP;
-
-  const rawQuery = query.trim();
-
-  // Every query is split into terms first: operator-bearing terms
-  // ("login|auth", "Read.*auth") stay regex patterns, plain terms —
-  // including dotted filenames ("observer.ts") — match literally. A natural
-  // sentence mentioning a file therefore reaches BM25 ranking instead of
-  // being compiled as one (never-matching) whole-query pattern.
-  const rawTerms = rawQuery.split(/\s+/);
-  const terms = filterStopwords(rawTerms);
-  const compiled = compileTerms(terms);
-  const snipRe = snippetRegex(terms);
+  const compiled = plan.terms;
+  const snipRe = snippetRegex(compiled);
 
   // Build all docs for BM25 context (cache fullText to avoid recomputing)
   const docs: string[] = [];
@@ -537,7 +562,7 @@ export const searchEntriesDetailed = (
     const score = bm25Score(hay, compiled, ctx);
     const text = fullTextCache[i];
     const snip = lineSnippet(text, snipRe);
-    const fileMatches = computeFileMatches(messages[i], rawQuery);
+    const fileMatches = computeFileMatches(messages[i], plan);
     const extra = fileMatches.length > 0 ? { fileMatches } : {};
     scored.push({
       hit: { ...e, snippet: snip, matchCount: mc, ...extra },
@@ -554,6 +579,16 @@ export const searchEntriesDetailed = (
     cap,
   );
 };
+
+/** Compatibility wrapper for existing callers that still supply query text. */
+export const searchEntriesDetailed = (
+  entries: RenderedEntry[],
+  messages: Message[],
+  query?: string,
+  tuning?: SearchTuning,
+  mode?: RecallMode,
+): SearchResult =>
+  searchEntriesDetailedWithPlan(entries, messages, planSearchQuery(query), tuning, mode);
 
 export const searchEntries = (
   entries: RenderedEntry[],
