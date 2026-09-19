@@ -1,0 +1,887 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Judgment-first memory pipeline - throwaway prototype</title>
+<style>
+  :root {
+    --bg: #faf9f7;
+    --panel: #ffffff;
+    --ink: #1c1a18;
+    --muted: #6d6862;
+    --line: #e3dfd9;
+    --accent: #b4531f;
+    --accent-soft: #fbf0e8;
+    --ok: #2f6b3f;
+    --warn: #8a6d1f;
+    --bad: #9b2c2c;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--ink);
+    font: 15px/1.6 -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+  }
+  .wrap { max-width: 1140px; margin: 0 auto; padding: 32px 24px 96px; }
+  h1 { font-size: 26px; line-height: 1.25; margin: 0 0 8px; letter-spacing: -0.01em; }
+  h2 { font-size: 13px; text-transform: uppercase; letter-spacing: 0.09em; color: var(--muted); margin: 34px 0 10px; font-weight: 600; }
+  h3 { font-size: 14.5px; margin: 0 0 6px; }
+  p { margin: 0 0 12px; }
+  .lede { font-size: 16px; color: #3b3733; max-width: 78ch; }
+  .banner {
+    background: var(--accent-soft);
+    border: 1px solid #edd6c4;
+    border-left: 4px solid var(--accent);
+    padding: 12px 16px;
+    margin: 0 0 24px;
+    font-size: 13.5px;
+    color: #6b3813;
+    max-width: 92ch;
+  }
+  .banner strong { color: var(--accent); }
+  .panel {
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    padding: 18px 20px;
+    margin: 0 0 16px;
+  }
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(148px, 1fr)); gap: 14px; }
+  .stat { border-left: 3px solid var(--line); padding-left: 10px; }
+  .stat .k { font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.07em; color: var(--muted); }
+  .stat .v { font-size: 17px; font-variant-numeric: tabular-nums; }
+  .stat.on { border-left-color: var(--accent); }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th, td { text-align: left; padding: 7px 8px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  th { font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); font-weight: 600; }
+  td.num, th.num { font-variant-numeric: tabular-nums; white-space: nowrap; }
+  tr.dropped td { color: #aaa29a; }
+  tr.dropped td:nth-child(2) { text-decoration: line-through; }
+  tr.flash td { background: #fdf6ef; }
+  .tag { display: inline-block; font-size: 10.5px; padding: 1px 6px; border-radius: 10px; border: 1px solid var(--line); background: #f5f3f0; letter-spacing: 0.02em; white-space: nowrap; }
+  .tag.critical { background: #f7e3e3; border-color: #e9c6c6; color: var(--bad); }
+  .tag.high { background: #fbeee2; border-color: #eed7bf; color: #8a4a17; }
+  .tag.medium { background: #f2f1ea; border-color: #e0ded2; color: #6b6750; }
+  .tag.low { background: #f3f3f3; border-color: #e5e5e5; color: #85807a; }
+  .tag.floor { background: #e9f1ea; border-color: #cbe0cf; color: var(--ok); }
+  .tag.warn { background: #fdf3da; border-color: #ecdcaf; color: var(--warn); }
+  .tag.ungraded { background: #fff; border-color: #dcd8d2; color: var(--muted); }
+  button {
+    font: inherit; font-size: 13px;
+    background: #fff; color: var(--ink);
+    border: 1px solid #cfc9c1; border-radius: 5px;
+    padding: 7px 12px; cursor: pointer; margin: 0 6px 6px 0;
+  }
+  button:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); }
+  button:disabled { opacity: 0.38; cursor: default; }
+  button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  button.primary:hover:not(:disabled) { background: #9c4619; color: #fff; }
+  button.step { display: block; width: 100%; text-align: left; margin-bottom: 6px; }
+  button.step.done { background: #f6f5f3; color: #a49c94; border-color: var(--line); }
+  button.step.next { border-color: var(--accent); box-shadow: inset 3px 0 0 var(--accent); }
+  .label { font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); margin: 14px 0 6px; }
+  .label:first-child { margin-top: 0; }
+  .tabs { display: flex; flex-wrap: wrap; gap: 4px; border-bottom: 1px solid var(--line); }
+  .tabs button { margin: 0; border-radius: 5px 5px 0 0; border-bottom-color: transparent; position: relative; top: 1px; }
+  .tabs button.active { background: var(--panel); border-color: var(--line); border-bottom-color: var(--panel); color: var(--accent); font-weight: 600; }
+  .tabbody { border: 1px solid var(--line); border-top: none; border-radius: 0 0 6px 6px; background: var(--panel); padding: 18px 20px; }
+  .log { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; line-height: 1.6; max-height: 260px; overflow-y: auto; }
+  .log div { padding: 2px 0; border-bottom: 1px dotted #efece8; }
+  .log .hl { color: var(--accent); }
+  .log .neg { color: var(--bad); }
+  .log .pos { color: var(--ok); }
+  .note { font-size: 12.5px; color: var(--muted); }
+  .cols { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; align-items: start; }
+  @media (max-width: 900px) { .cols { grid-template-columns: 1fr; } }
+  code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12.5px; background: #f4f2ef; padding: 1px 4px; border-radius: 3px; }
+  .sim { font-size: 10.5px; letter-spacing: 0.07em; text-transform: uppercase; color: var(--warn); border: 1px solid #ecdcaf; background: #fdf9ee; padding: 1px 5px; border-radius: 3px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<h1>Judgment-first memory pipeline</h1>
+<p class="lede">
+  Pi's memory layer decides which observations survive compaction. Today that decision rests on a
+  <code>relevance</code> label the observer model writes about its own output, and on a reflection citation list
+  the reflector model writes. This demo asks one question: if a calibrated judgment is computed for every
+  observation at the moment it is written, and code owns every threshold, floor and ordering after that, does the
+  pipeline keep the right things? Press the buttons and watch the pool.
+</p>
+
+<div class="banner">
+  <strong>Throwaway prototype.</strong> Nothing here touches a network. Every TypeSafe answer is
+  <span class="sim">simulated</span> and hard-coded, and every figure marked that way is invented for the demo.
+  The drop cap curve, the drop comparator and the fold trim are faithful ports of the real functions in
+  <code>pi-blackhole</code>. Token budgets are scaled down (pool 600, fold 90) so the real curves bite in a
+  fourteen-observation pool; the shipped defaults are 20,000 for both.
+</div>
+
+<h2>Layer status</h2>
+<div class="panel"><div class="grid" id="stats"></div></div>
+
+<h2>Observation pool</h2>
+<div class="panel">
+  <table>
+    <thead>
+      <tr>
+        <th>Id</th><th>Observation</th><th class="num">Tok</th>
+        <th>Observer said</th><th>Ranked as</th><th class="num">Retention</th>
+        <th>Preservation floor</th><th>Coverage</th>
+      </tr>
+    </thead>
+    <tbody id="poolBody"></tbody>
+  </table>
+  <p class="note" id="poolNote"></p>
+</div>
+
+<div class="cols">
+  <div>
+    <h2>Last drop run</h2>
+    <div class="panel" id="dropPanel"></div>
+  </div>
+  <div>
+    <h2>Last fold into compacted context</h2>
+    <div class="panel" id="foldPanel"></div>
+  </div>
+</div>
+
+<h2>Activity</h2>
+<div class="panel log" id="log"></div>
+
+<h2>Free play</h2>
+<div class="panel" id="freeplay"></div>
+
+<h2>Guided walkthroughs</h2>
+<div class="tabs" id="tabs"></div>
+<div class="tabbody" id="tabbody"></div>
+
+<p class="note" style="margin-top:40px">
+  Prototype for proposal B, judgment-first pipeline. Companion document
+  <code>b-judgment-first-pipeline.md</code>. Delete both once the question is settled.
+</p>
+
+</div>
+
+<script>
+/* ============================================================================
+   PURE MODULE - liftable into the real codebase. No DOM, no document, no
+   handler reaches inside. reduce(state, action) -> state.
+   ========================================================================= */
+
+/* ---- Fixtures. Observations are realistic. Jev answers are SIMULATED. ----- */
+
+const FIXTURES = {
+  A: {
+    title: "rollout planner session", groups: 2, simInputTokens: 9400,
+    observations: [
+      { id: "a1", tokens: 22, coverage: "strong", observerLabel: "high",
+        content: "Operator reported the mini lost its dropper model choice after the last rollout." },
+      { id: "a2", tokens: 24, coverage: "strong", observerLabel: "high",
+        content: "scripts/rollout-plan.ts copied pi-blackhole-config.json verbatim instead of merging it." },
+      { id: "a3", tokens: 18, coverage: "none", observerLabel: "medium",
+        content: "Ran pnpm rollout --dry-run and it reported no changes." },
+      { id: "a4", tokens: 26, coverage: "none", observerLabel: "low",
+        content: "Failing test is rollout-plan.test.ts > merges blackhole config host-wins." },
+      { id: "a5", tokens: 20, coverage: "partial", observerLabel: "medium",
+        content: "Agent read scripts/rollout-plan.ts and summarized the merge helper." },
+      { id: "a6", tokens: 28, coverage: "strong", observerLabel: "critical",
+        content: "Operator decided BLACKHOLE_MODEL_KEYS stays the only per-entry merge list, so new config keys must be flat." }
+    ]
+  },
+  B: {
+    title: "dropper investigation", groups: 1, simInputTokens: 5200,
+    observations: [
+      { id: "b1", tokens: 26, coverage: "none", observerLabel: "high",
+        content: "selectDropCandidates sorts by coverage first, so a strongly covered critical outranks an uncovered low." },
+      { id: "b2", tokens: 14, coverage: "none", observerLabel: "low",
+        content: "Agent ran the test suite and it passed." },
+      { id: "b3", tokens: 20, coverage: "partial", observerLabel: "high",
+        content: "Still blocked on whether to overwrite relevance in place or add a parallel field." },
+      { id: "b4", tokens: 24, coverage: "none", observerLabel: "medium",
+        content: "The merge helper is mergeBlackholeConfig at scripts/rollout-plan.ts line 143." },
+      { id: "b5", tokens: 15, coverage: "partial", observerLabel: "low",
+        content: "Agent listed the files in src/om/agents/dropper." }
+    ]
+  },
+  C: {
+    title: "decision and cleanup", groups: 1, simInputTokens: 4900,
+    observations: [
+      { id: "c1", tokens: 26, coverage: "none", observerLabel: "critical",
+        content: "Operator decided to overwrite relevance in place and keep the raw judgment in a new field." },
+      { id: "c2", tokens: 28, coverage: "none", observerLabel: "medium",
+        content: "Assistant noted the config seam may not carry TYPESAFE_API_KEY when Pi starts under launchd." },
+      { id: "c3", tokens: 22, coverage: "none", observerLabel: "medium",
+        content: "The planner used to overwrite a host's blackhole config file wholesale." }
+    ]
+  }
+};
+
+/* SIMULATED Jev answers, keyed by observation id.
+     retention  - probability-weighted Score on the five-level retention rubric, 0 to 4
+     confidence - how concentrated that Score's distribution is
+     floor      - three Noul probabilities: user commitment, exact token, open thread
+     supersedes / duplicateOf - the write-time edges from the paired Nouls        */
+const SIM_JUDGMENTS = {
+  a1: { retention: 4.0, confidence: 0.88, floor: { user: 0.92, exact: 0.05, open: 0.10 } },
+  a2: { retention: 3.1, confidence: 0.81, floor: { user: 0.08, exact: 0.74, open: 0.12 } },
+  a3: { retention: 0.6, confidence: 0.79, floor: { user: 0.04, exact: 0.10, open: 0.06 } },
+  a4: { retention: 2.9, confidence: 0.74, floor: { user: 0.06, exact: 0.95, open: 0.41 } },
+  a5: { retention: 1.2, confidence: 0.83, floor: { user: 0.05, exact: 0.20, open: 0.08 } },
+  a6: { retention: 3.9, confidence: 0.91, floor: { user: 0.88, exact: 0.30, open: 0.05 } },
+  b1: { retention: 3.2, confidence: 0.86, floor: { user: 0.05, exact: 0.62, open: 0.15 } },
+  b2: { retention: 0.3, confidence: 0.90, floor: { user: 0.02, exact: 0.04, open: 0.03 } },
+  b3: { retention: 3.0, confidence: 0.77, floor: { user: 0.18, exact: 0.10, open: 0.89 } },
+  b4: { retention: 2.6, confidence: 0.69, floor: { user: 0.04, exact: 0.93, open: 0.20 } },
+  b5: { retention: 0.4, confidence: 0.88, floor: { user: 0.02, exact: 0.15, open: 0.05 } },
+  c1: { retention: 3.9, confidence: 0.93, floor: { user: 0.90, exact: 0.35, open: 0.08 }, supersedes: ["b3"] },
+  c2: { retention: 1.9, confidence: 0.31, floor: { user: 0.20, exact: 0.25, open: 0.30 } },
+  c3: { retention: 1.0, confidence: 0.84, floor: { user: 0.05, exact: 0.30, open: 0.05 }, duplicateOf: "a2" }
+};
+
+/* SIMULATED DeepSeek dropper proposals. The current dropper's entire
+   contribution is a set of ids; code already owns the cap and the ordering. */
+const SIM_MODEL_PROPOSALS = [
+  { need: ["a6","b5","c3"], ids: ["c3", "b2", "a6", "b5", "a3"] },
+  { need: ["a6","b5"],      ids: ["a6", "b2", "b5", "a3"] },
+  { need: ["a6"],           ids: ["a6", "a3"] },
+  { need: ["b5"],           ids: ["b2", "b5", "b3"] }
+];
+
+/* ---- Policy. All of this is code. None of it moves to a model. ----------- */
+
+const POLICY = {
+  poolBudgetTokens: 600,       // scaled from the shipped 20,000
+  foldBudgetTokens: 90,        // scaled from the shipped 20,000
+  skipFullness: 0.1,           // dropperPoolFullnessThreshold
+  dropMinRatio: 0.1,
+  dropMaxRatio: 0.5,
+  dropMaxFullness: 1.0,
+  tierMedium: 0.75,            // retention cut points, tuned on real data
+  tierHigh: 1.75,
+  tierCritical: 3.0,
+  floorProbability: 0.35,      // deliberately low: a false positive keeps one row
+  scoreConfidenceFloor: 0.50   // below this, fall back to the observer's own label
+};
+
+const RELEVANCE_DROP_RANK = { low: 0, medium: 1, high: 2, critical: 3 };
+const COVERAGE_DROP_RANK = { strong: 0, partial: 1, none: 2 };
+const LABEL_AS_RETENTION = { low: 0.4, medium: 1.2, high: 2.6, critical: 3.6 };
+
+/* ---- Faithful ports of the shipped pi-blackhole functions ---------------- */
+
+function observationPoolFullness(observationTokens, budgetTokens) {
+  if (!(observationTokens > 0) || !(budgetTokens > 0)) return 0;
+  return observationTokens / budgetTokens;
+}
+
+/** Port of maxDropCountForPool. Criticals are excluded from the SIZING count
+ *  only, never from the candidate slice. That asymmetry is the shipped gap. */
+function maxDropCountForPool(pool, observationTokens, use) {
+  const droppable = pool.filter(o => effectiveTier(o, use) !== "critical").length;
+  if (droppable === 0) return 0;
+  const fullness = observationPoolFullness(observationTokens, POLICY.poolBudgetTokens);
+  if (fullness < POLICY.skipFullness) return 0;
+  const capped = Math.min(POLICY.dropMaxFullness, Math.max(POLICY.skipFullness, fullness));
+  const ratio = POLICY.dropMinRatio +
+    ((capped - POLICY.skipFullness) / (POLICY.dropMaxFullness - POLICY.skipFullness)) *
+    (POLICY.dropMaxRatio - POLICY.dropMinRatio);
+  return Math.max(1, Math.floor(droppable * ratio));
+}
+
+/** Port of selectDropCandidates. Lexicographic: coverage, then relevance, then
+ *  age, then proposal order. Coverage is the PRIMARY key, which is exactly why
+ *  a strongly covered critical sorts ahead of an uncovered low. */
+function selectDropCandidates(proposedIds, pool, maxDrops, use) {
+  if (maxDrops <= 0 || proposedIds.length === 0) return [];
+  const byId = new Map(pool.map(o => [o.id, o]));
+  const first = new Map();
+  proposedIds.forEach((id, i) => { if (!first.has(id)) first.set(id, i); });
+  return [...first.entries()]
+    .map(([id, index]) => ({ id, index, o: byId.get(id) }))
+    .filter(c => c.o)
+    .sort((a, b) =>
+      (COVERAGE_DROP_RANK[a.o.coverage] - COVERAGE_DROP_RANK[b.o.coverage]) ||
+      (RELEVANCE_DROP_RANK[effectiveTier(a.o, use)] - RELEVANCE_DROP_RANK[effectiveTier(b.o, use)]) ||
+      (a.o.seq - b.o.seq) ||
+      (a.index - b.index))
+    .slice(0, maxDrops)
+    .map(c => c.id);
+}
+
+/** Port of scoreObservation. high and critical collapse to the same weight, so
+ *  recency alone decides between them. That collapse is open question 4. */
+function bucketScore(tier, index, total) {
+  const base = (tier === "high" || tier === "critical") ? 10 : tier === "medium" ? 5 : 1;
+  return base + (total > 1 ? index / (total - 1) : 1);
+}
+
+/** Proposed slice 2b: the continuous retention value replaces the bucket. */
+function continuousScore(o, index, total, use) {
+  const recency = total > 1 ? index / (total - 1) : 1;
+  return retentionOf(o, use) + recency;
+}
+
+/** Port of selectPriorObservations: rank, then greedy fill to a token budget. */
+function selectPriorObservations(pool, maxTokens, scorer) {
+  const ranked = pool.map((o, index) => ({ o, index, s: scorer(o, index, pool.length) }));
+  ranked.sort((a, b) => b.s - a.s);
+  const kept = [];
+  let used = 0;
+  for (const item of ranked) {
+    if (used + item.o.tokens > maxTokens) continue;
+    kept.push(item);
+    used += item.o.tokens;
+  }
+  kept.sort((a, b) => a.index - b.index);
+  return { kept: kept.map(k => k.o.id), usedTokens: used };
+}
+
+/* ---- The judgment layer -------------------------------------------------- */
+
+/** `use` is true only when the layer is ON. In shadow mode judgments are
+ *  stored but never consulted, so behaviour is identical to today. */
+function usesJudgment(o, use) {
+  return !!(use && o.judgment && o.judgment.trusted);
+}
+
+function tierFromRetention(r) {
+  if (r >= POLICY.tierCritical) return "critical";
+  if (r >= POLICY.tierHigh) return "high";
+  if (r >= POLICY.tierMedium) return "medium";
+  return "low";
+}
+
+/** The one rule that makes degradation safe: no usable judgment means the
+ *  observer's own label, which is exactly the shipped behaviour. */
+function effectiveTier(o, use) {
+  return usesJudgment(o, use) ? tierFromRetention(o.judgment.retention) : o.observerLabel;
+}
+
+function retentionOf(o, use) {
+  return usesJudgment(o, use) ? o.judgment.retention : LABEL_AS_RETENTION[o.observerLabel];
+}
+
+/** The floor reads Noul probabilities, which carry no confidence, so it does
+ *  not require a trusted Score. It does require the layer to be on. */
+function floorReasons(o, use) {
+  if (!use || !o.judgment) return [];
+  const f = o.judgment.floor, out = [];
+  if (f.user >= POLICY.floorProbability) out.push("user commitment");
+  if (f.exact >= POLICY.floorProbability) out.push("exact token");
+  if (f.open >= POLICY.floorProbability && !o.judgment.threadClosed) out.push("open thread");
+  return out;
+}
+
+const floorHolds = (o, use) => floorReasons(o, use).length > 0;
+
+/** Code-only drop selection. Zero model calls. The floor is a hard exclusion
+ *  applied BEFORE ranking, which is a guarantee a prompt could never make. */
+function selectDropsFromJudgments(pool, maxDrops, use) {
+  if (maxDrops <= 0) return { dropped: [], excluded: [], considered: [] };
+  const excluded = [], considered = [];
+  for (const o of pool) {
+    if (floorHolds(o, use)) { excluded.push(o.id); continue; }
+    const j = use ? o.judgment : null;
+    if (j && j.duplicateOf) { considered.push({ o, key: -1, why: `duplicate of ${j.duplicateOf}` }); continue; }
+    const superseder = use && pool.find(p =>
+      usesJudgment(p, use) && (p.judgment.supersedes || []).includes(o.id));
+    if (superseder) { considered.push({ o, key: -0.5, why: `superseded by ${superseder.id}` }); continue; }
+    considered.push({ o, key: retentionOf(o, use), why: usesJudgment(o, use) ? "retention" : "observer label" });
+  }
+  considered.sort((a, b) =>
+    (a.key - b.key) ||
+    (COVERAGE_DROP_RANK[a.o.coverage] - COVERAGE_DROP_RANK[b.o.coverage]) ||
+    (a.o.seq - b.o.seq));
+  return {
+    dropped: considered.slice(0, maxDrops).map(c => c.o.id),
+    excluded,
+    considered: considered.map(c => `${c.o.id} (${c.why})`)
+  };
+}
+
+/* ---- Reducer ------------------------------------------------------------- */
+
+function initialState() {
+  return {
+    mode: "on", keyPresent: true, nextApiResult: "ok", foldRanking: "observer",
+    pool: [], seq: 0, chunksObserved: [],
+    requests: 0, simInputTokens: 0,
+    lastDrop: null, lastFold: null, changed: [], log: []
+  };
+}
+
+const layerOn = s => s.mode === "on";
+const activePool = s => s.pool.filter(o => !o.droppedAt);
+const poolTokens = pool => pool.reduce((n, o) => n + o.tokens, 0);
+
+function say(s, line, kind) { s.log = [...s.log, { line, kind: kind || "" }].slice(-90); }
+
+function simProposalFor(pool) {
+  const ids = new Set(pool.map(o => o.id));
+  for (const p of SIM_MODEL_PROPOSALS) {
+    if (p.need.every(id => ids.has(id))) return p.ids.filter(id => ids.has(id));
+  }
+  return pool.slice(0, 2).map(o => o.id);
+}
+
+function reduce(state, action) {
+  const s = { ...state, pool: state.pool.map(o => ({ ...o, judgment: o.judgment ? { ...o.judgment } : null })), changed: [] };
+
+  switch (action.type) {
+
+    case "RESET": return initialState();
+
+    case "SET_MODE":
+      s.mode = action.mode;
+      say(s, `Judgment mode set to "${action.mode}".`, "hl");
+      if (action.mode === "shadow") say(s, "Shadow: judgments are stored but never consulted. Behaviour is identical to today.");
+      return s;
+
+    case "SET_KEY":
+      s.keyPresent = action.present;
+      say(s, action.present ? "TYPESAFE_API_KEY present in the shell seam."
+        : "TYPESAFE_API_KEY absent. No network call will be attempted.",
+        action.present ? "" : "neg");
+      return s;
+
+    case "SET_API":
+      s.nextApiResult = action.result;
+      say(s, `Next grading call will return: ${action.result}.`, action.result === "ok" ? "" : "neg");
+      return s;
+
+    case "SET_FOLD_RANKING": s.foldRanking = action.ranking; return s;
+
+    case "OBSERVE": {
+      const fx = FIXTURES[action.chunk];
+      if (s.chunksObserved.includes(action.chunk)) { say(s, `Chunk ${action.chunk} is already in the pool.`); return s; }
+      s.chunksObserved = [...s.chunksObserved, action.chunk];
+
+      const added = fx.observations.map(o => ({ ...o, seq: ++s.seq, judgment: null, droppedAt: null }));
+      s.pool = [...s.pool, ...added];
+      s.changed = added.map(o => o.id);
+      say(s, `Observer wrote ${added.length} observations from chunk ${action.chunk} (${fx.title}). DeepSeek, thinking off. Generation is unchanged by this proposal.`, "hl");
+
+      if (s.mode === "off") { say(s, "Judgment layer off. Observations keep the observer's own relevance label."); return s; }
+      if (!s.keyPresent) { say(s, "Grading skipped, no key. Observations keep the observer's own label. Nothing appears in the UI.", "neg"); return s; }
+      if (s.nextApiResult !== "ok") { say(s, `Grading failed: ${s.nextApiResult}. Observations keep the observer's own label. Nothing appears in the UI.`, "neg"); return s; }
+
+      s.requests += fx.groups;
+      s.simInputTokens += fx.simInputTokens;
+      say(s, `Graded in ${fx.groups} request${fx.groups === 1 ? "" : "s"}, one per cited-evidence group, ${added.length * 4} questions in total. SIMULATED ${fx.simInputTokens.toLocaleString()} input tokens.`, "pos");
+
+      let lowConf = 0;
+      for (const o of s.pool) {
+        if (o.judgment || !added.some(a => a.id === o.id)) continue;
+        const j = SIM_JUDGMENTS[o.id];
+        if (!j) continue;
+        const trusted = j.confidence >= POLICY.scoreConfidenceFloor;
+        if (!trusted) lowConf++;
+        o.judgment = {
+          retention: j.retention, confidence: j.confidence, floor: j.floor,
+          supersedes: j.supersedes || [], duplicateOf: j.duplicateOf || null,
+          threadClosed: false, trusted, stale: false
+        };
+        for (const target of (j.supersedes || [])) {
+          const t = s.pool.find(p => p.id === target);
+          if (t && t.judgment) {
+            t.judgment.threadClosed = true;
+            s.changed.push(t.id);
+            say(s, `Write-time edge: ${o.id} supersedes ${target}. Code clears the open-thread bit on ${target} with no request.`, "pos");
+          }
+        }
+        if (j.duplicateOf) say(s, `Write-time edge: ${o.id} duplicates ${j.duplicateOf}.`, "pos");
+      }
+      if (lowConf) say(s, `${lowConf} Score came back below the confidence floor of ${POLICY.scoreConfidenceFloor}. That observation falls back to the observer's label. Everything else in the same response stays calibrated.`, "neg");
+      if (s.mode === "shadow") say(s, "Shadow: judgments stored, relevance NOT overwritten, drop selection still goes through the model path.", "hl");
+      return s;
+    }
+
+    case "RUN_DROPPER_MODEL": {
+      const pool = activePool(s);
+      if (!pool.length) { say(s, "Pool is empty."); return s; }
+      const use = layerOn(s);
+      const tokens = poolTokens(pool);
+      const cap = maxDropCountForPool(pool, tokens, use);
+      const proposed = simProposalFor(pool);
+      say(s, `Dropper as it ships: one DeepSeek agentLoop, thinking high, up to 16 turns. Pool ${tokens}/${POLICY.poolBudgetTokens} tokens, fullness ${(tokens / POLICY.poolBudgetTokens * 100).toFixed(0)} percent, cap ${cap}.`, "hl");
+      say(s, `Model proposed: ${proposed.join(", ") || "(nothing)"}. Code owns the cap and the ordering from here.`);
+      const dropped = selectDropCandidates(proposed, pool, cap, use);
+      for (const id of dropped) { const o = s.pool.find(p => p.id === id); if (o) o.droppedAt = "model"; }
+      s.changed = dropped;
+      s.lastDrop = { path: "model", proposed, cap, dropped, excluded: [] };
+      const lostCritical = dropped.filter(id => effectiveTier(s.pool.find(p => p.id === id), use) === "critical");
+      say(s, `Dropped: ${dropped.join(", ") || "(none)"}.`, lostCritical.length ? "neg" : "");
+      if (lostCritical.length) say(s, `A critical observation was dropped: ${lostCritical.join(", ")}. Reflection coverage is the primary sort key, so strong coverage put it at the front of the queue, ahead of an uncovered low.`, "neg");
+      return s;
+    }
+
+    case "RUN_DROPPER_CODE": {
+      const pool = activePool(s);
+      if (!pool.length) { say(s, "Pool is empty."); return s; }
+      const use = layerOn(s);
+      const tokens = poolTokens(pool);
+      const cap = maxDropCountForPool(pool, tokens, use);
+      say(s, `Dropper, code only. Zero model calls. Pool ${tokens}/${POLICY.poolBudgetTokens} tokens, cap ${cap} from the same shipped curve.`, "hl");
+      if (!use) say(s, "Layer is not on, so every input falls back to the observer's label. This is the degraded path.", "neg");
+      const r = selectDropsFromJudgments(pool, cap, use);
+      if (r.excluded.length) say(s, `Preservation floor excluded before ranking: ${r.excluded.join(", ")}.`, "pos");
+      for (const id of r.dropped) { const o = s.pool.find(p => p.id === id); if (o) o.droppedAt = "code"; }
+      s.changed = r.dropped;
+      s.lastDrop = { path: "code", proposed: r.considered, cap, dropped: r.dropped, excluded: r.excluded };
+      say(s, `Dropped: ${r.dropped.join(", ") || "(none)"}. Deterministic: the same pool gives the same answer every time.`, "pos");
+      return s;
+    }
+
+    case "PEEK_BOTH": {
+      const pool = activePool(s);
+      if (!pool.length) { say(s, "Pool is empty."); return s; }
+      const tokens = poolTokens(pool);
+      const capToday = maxDropCountForPool(pool, tokens, false);
+      const modelDrops = selectDropCandidates(simProposalFor(pool), pool, capToday, false);
+      const capJudged = maxDropCountForPool(pool, tokens, true);
+      const codeResult = selectDropsFromJudgments(pool, capJudged, true);
+      const onlyModel = modelDrops.filter(id => !codeResult.dropped.includes(id));
+      const onlyCode = codeResult.dropped.filter(id => !modelDrops.includes(id));
+      s.lastDrop = { path: "shadow", proposed: codeResult.considered, cap: capJudged,
+        dropped: codeResult.dropped, excluded: codeResult.excluded, modelDropped: modelDrops };
+      say(s, `Shadow comparison on the same pool. Model path would drop: ${modelDrops.join(", ") || "(none)"}. Code path would drop: ${codeResult.dropped.join(", ") || "(none)"}.`, "hl");
+      say(s, onlyModel.length || onlyCode.length
+        ? `Disagreement. Only the model path drops ${onlyModel.join(", ") || "(nothing)"}. Only the code path drops ${onlyCode.join(", ") || "(nothing)"}. This is the table that decides the cutover.`
+        : "The two paths agree on this pool.", onlyModel.length || onlyCode.length ? "neg" : "pos");
+      say(s, "Nothing was actually removed. Shadow mode changes no behaviour.");
+      return s;
+    }
+
+    case "FOLD": {
+      const pool = activePool(s);
+      if (!pool.length) { say(s, "Nothing to fold."); return s; }
+      const use = layerOn(s);
+      const scorer =
+        s.foldRanking === "observer" ? (o, i, n) => bucketScore(o.observerLabel, i, n)
+        : s.foldRanking === "tier" ? (o, i, n) => bucketScore(effectiveTier(o, use), i, n)
+        : (o, i, n) => continuousScore(o, i, n, use);
+      const label = {
+        observer: "as it ships today: observer label, bucketed",
+        tier: "slice 2a: calibrated tier, still bucketed",
+        continuous: "slice 2b: continuous retention value"
+      }[s.foldRanking];
+      const r = selectPriorObservations(pool, POLICY.foldBudgetTokens, scorer);
+      const trimmed = pool.filter(o => !r.kept.includes(o.id)).map(o => o.id);
+      s.lastFold = { label, kept: r.kept, trimmed, usedTokens: r.usedTokens };
+      s.changed = r.kept;
+      say(s, `Fold trim (${label}), budget ${POLICY.foldBudgetTokens} tokens. Reaches context: ${r.kept.join(", ")}. Trimmed away: ${trimmed.join(", ") || "(none)"}.`, "hl");
+      return s;
+    }
+
+    case "MARK_STALE": {
+      let n = 0;
+      for (const o of s.pool) if (o.judgment) { o.judgment.stale = true; n++; }
+      s.changed = s.pool.filter(o => o.judgment).map(o => o.id);
+      say(s, `The reflection set changed, so ${n} stored judgments now carry a stale digest. Nothing is rescored. Rescoring waits until a decision needs a score.`, "hl");
+      return s;
+    }
+
+    case "RESCORE_BOUNDARY": {
+      const graded = activePool(s).filter(o => o.judgment && o.judgment.trusted);
+      if (!graded.length) { say(s, "Nothing graded to rescore."); return s; }
+      const sorted = [...graded].sort((a, b) => a.judgment.retention - b.judgment.retention);
+      const mid = Math.floor(sorted.length / 2);
+      const band = sorted.slice(Math.max(0, mid - 1), mid + 2);
+      const staleInBand = band.filter(o => o.judgment.stale);
+      if (!staleInBand.length) { say(s, "No stale judgments at the cut line. No request issued."); return s; }
+      s.requests += 1;
+      s.simInputTokens += 3100;
+      for (const o of s.pool) if (staleInBand.some(b => b.id === o.id)) o.judgment.stale = false;
+      s.changed = staleInBand.map(o => o.id);
+      const stillStale = activePool(s).filter(o => o.judgment && o.judgment.stale).length;
+      say(s, `Boundary rescore: ${staleInBand.length} observations at the cut line, one request, SIMULATED 3,100 input tokens. ${stillStale} judgments elsewhere in the pool stay stale and untouched.`, "pos");
+      return s;
+    }
+
+    default: return s;
+  }
+}
+
+/* ============================================================================
+   THROWAWAY PAGE SHELL. Nothing below here is worth keeping.
+   ========================================================================= */
+
+let STATE = initialState();
+let SCENARIO = 0;
+let STEP = 0;
+
+const SCENARIOS = [
+  {
+    name: "The critical goes first",
+    blurb: "The shipped comparator sorts by reflection coverage before relevance, and never excludes criticals from the slice it takes. Watch chunk A land with the layer off, then watch the current path drop a6, the operator's own decision, ahead of \"ran a dry run\". Then run the judgment path on the same pool and watch the preservation floor refuse.",
+    steps: [
+      { label: "1. Turn the judgment layer off, so this is exactly today's pipeline", action: { type: "SET_MODE", mode: "off" } },
+      { label: "2. Observer writes chunk A", action: { type: "OBSERVE", chunk: "A" } },
+      { label: "3. Run the dropper as it ships: DeepSeek proposes, code slices", action: { type: "RUN_DROPPER_MODEL" } },
+      { label: "4. Start over with the layer on, and run the code path on the same pool", action: { type: "__REDO_CODE" } }
+    ]
+  },
+  {
+    name: "Grading its own homework",
+    blurb: "a4 records the exact failing test name, and the observer labelled it low because naming a test feels routine while writing it. The exact-token Noul comes back at 0.95 and the retention Score at 2.9, so code raises it to high. Nothing downstream needed an edit for that to happen, which is the whole argument for slice 1.",
+    steps: [
+      { label: "1. Turn the judgment layer off", action: { type: "SET_MODE", mode: "off" } },
+      { label: "2. Observer writes chunk A, ungraded", action: { type: "OBSERVE", chunk: "A" } },
+      { label: "3. Fold with today's ranking. Watch a4 get trimmed away.", action: { type: "__FOLD_AS", ranking: "observer" } },
+      { label: "4. Start over with the layer on", action: { type: "__RESET_ON" } },
+      { label: "5. Observer writes chunk A, graded at write time", action: { type: "OBSERVE", chunk: "A" } },
+      { label: "6. Fold with the calibrated tier. a4 now reaches context.", action: { type: "__FOLD_AS", ranking: "tier" } }
+    ]
+  },
+  {
+    name: "What reaches context",
+    blurb: "Three rankings over the same graded pool. Today buckets the observer's label. Slice 2a buckets the calibrated tier, which is better but still collapses high and critical into one weight, so recency decides between them. Slice 2b uses the continuous retention value. Compare which three survive each time. This is open question 4 in the document.",
+    steps: [
+      { label: "1. Observer writes chunk A, graded", action: { type: "OBSERVE", chunk: "A" } },
+      { label: "2. Fold as it ships today", action: { type: "__FOLD_AS", ranking: "observer" } },
+      { label: "3. Fold with the calibrated tier, still bucketed", action: { type: "__FOLD_AS", ranking: "tier" } },
+      { label: "4. Fold with the continuous retention value", action: { type: "__FOLD_AS", ranking: "continuous" } }
+    ]
+  },
+  {
+    name: "TypeSafe is unreachable",
+    blurb: "The whole degradation story. The mode is on, the key is gone, and the pipeline has to behave exactly as it does today with no user-visible error. Then the key returns mid-session and the pool ends up mixed: some observations graded, some not. The comparator has to handle both without special-casing.",
+    steps: [
+      { label: "1. Remove TYPESAFE_API_KEY from the shell seam", action: { type: "SET_KEY", present: false } },
+      { label: "2. Observer writes chunk A. No grading, no error, no UI change.", action: { type: "OBSERVE", chunk: "A" } },
+      { label: "3. Run the drop path on the ungraded pool", action: { type: "RUN_DROPPER_CODE" } },
+      { label: "4. The key comes back", action: { type: "SET_KEY", present: true } },
+      { label: "5. Observer writes chunk B, graded", action: { type: "OBSERVE", chunk: "B" } },
+      { label: "6. Run the drop path on the mixed pool", action: { type: "RUN_DROPPER_CODE" } }
+    ]
+  },
+  {
+    name: "One answer is uncertain",
+    blurb: "c2 is the awkward one: a hedged statement about whether a config seam carries an environment variable. Its Score comes back at 0.31 confidence, below the floor of 0.50. Code falls back to the observer's label for that one observation, and keeps the calibrated tiers for everything else in the same response. Degradation is per observation, not per request.",
+    steps: [
+      { label: "1. Observer writes chunk A", action: { type: "OBSERVE", chunk: "A" } },
+      { label: "2. Observer writes chunk B", action: { type: "OBSERVE", chunk: "B" } },
+      { label: "3. Observer writes chunk C, which carries the uncertain one", action: { type: "OBSERVE", chunk: "C" } },
+      { label: "4. Run the drop path and see how c2 was treated", action: { type: "RUN_DROPPER_CODE" } }
+    ]
+  },
+  {
+    name: "Supersession and staleness",
+    blurb: "b3 records an open blocker. c1 records the operator resolving it. The supersession edge is judged at write time, inside the same batched request that grades c1, because that is the only moment both records are cheap to compare. Code then clears b3's open-thread bit with no request at all. Then change the reflection set and watch nothing get rescored until a decision needs a score.",
+    steps: [
+      { label: "1. Observer writes chunk B. b3 is an open blocker.", action: { type: "OBSERVE", chunk: "B" } },
+      { label: "2. Run the drop path. b3 is held back by the open-thread floor.", action: { type: "RUN_DROPPER_CODE" } },
+      { label: "3. Observer writes chunk C. c1 supersedes b3 at write time.", action: { type: "OBSERVE", chunk: "C" } },
+      { label: "4. Run the drop path again. b3 has left the protected set.", action: { type: "RUN_DROPPER_CODE" } },
+      { label: "5. Reflections change, so every stored judgment goes stale", action: { type: "MARK_STALE" } },
+      { label: "6. A decision needs scores: rescore the cut line only", action: { type: "RESCORE_BOUNDARY" } }
+    ]
+  },
+  {
+    name: "Shadow mode",
+    blurb: "The cutover safety net. Grading runs and judgments are stored, but relevance is not overwritten and no drop decision consults them, so behaviour is byte for byte what it is today. The only thing gained is the comparison: both paths computed on the same pool, with the disagreement written out. That table is what the cutover decision reads.",
+    steps: [
+      { label: "1. Switch to shadow", action: { type: "SET_MODE", mode: "shadow" } },
+      { label: "2. Observer writes chunk A", action: { type: "OBSERVE", chunk: "A" } },
+      { label: "3. Observer writes chunk B", action: { type: "OBSERVE", chunk: "B" } },
+      { label: "4. Compare both drop paths without changing anything", action: { type: "PEEK_BOTH" } },
+      { label: "5. Fold: confirm the ranking is still today's ranking", action: { type: "__FOLD_AS", ranking: "tier" } }
+    ]
+  }
+];
+
+function dispatch(action) {
+  if (action.type === "__RESET_ON") {
+    STATE = reduce(initialState(), { type: "SET_MODE", mode: "on" });
+  } else if (action.type === "__FOLD_AS") {
+    STATE = reduce(STATE, { type: "SET_FOLD_RANKING", ranking: action.ranking });
+    STATE = reduce(STATE, { type: "FOLD" });
+  } else if (action.type === "__REDO_CODE") {
+    STATE = reduce(initialState(), { type: "SET_MODE", mode: "on" });
+    STATE = reduce(STATE, { type: "OBSERVE", chunk: "A" });
+    STATE = reduce(STATE, { type: "RUN_DROPPER_CODE" });
+  } else {
+    STATE = reduce(STATE, action);
+  }
+  render();
+}
+
+const $ = id => document.getElementById(id);
+const esc = t => String(t).replace(/[&<>]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c]));
+
+function renderStats() {
+  const pool = activePool(STATE);
+  const tokens = poolTokens(pool);
+  const graded = pool.filter(o => o.judgment).length;
+  const cost = (STATE.simInputTokens / 1e6) * 0.042;
+  const cells = [
+    ["Judgment mode", STATE.mode, STATE.mode !== "off"],
+    ["TYPESAFE_API_KEY", STATE.keyPresent ? "present" : "absent", STATE.keyPresent],
+    ["Next call returns", STATE.nextApiResult, STATE.nextApiResult === "ok"],
+    ["Observations live", String(pool.length), false],
+    ["Carry a judgment", `${graded} / ${pool.length}`, graded > 0],
+    ["Pool tokens", `${tokens} / ${POLICY.poolBudgetTokens}`, tokens > POLICY.poolBudgetTokens * POLICY.skipFullness],
+    ["TypeSafe requests", String(STATE.requests), STATE.requests > 0],
+    ["Sim. input tokens", STATE.simInputTokens.toLocaleString(), false],
+    ["Sim. cost so far", `$${cost.toFixed(5)}`, false]
+  ];
+  $("stats").innerHTML = cells.map(([k, v, on]) =>
+    `<div class="stat ${on ? "on" : ""}"><div class="k">${esc(k)}</div><div class="v">${esc(v)}</div></div>`).join("");
+}
+
+function renderPool() {
+  const use = layerOn(STATE);
+  const rows = STATE.pool.map(o => {
+    const j = o.judgment;
+    const tier = effectiveTier(o, use);
+    const fl = floorReasons(o, use);
+    const retCell = !j ? `<span class="tag ungraded">not graded</span>`
+      : !j.trusted ? `<span class="tag warn">${j.retention.toFixed(1)} at conf ${j.confidence.toFixed(2)}, below floor</span>`
+      : `${j.retention.toFixed(1)} <span class="note">conf ${j.confidence.toFixed(2)}</span>${j.stale ? ' <span class="tag warn">stale</span>' : ""}`;
+    const floorCell = !j ? "<span class='note'>-</span>"
+      : !use ? `<span class="note">stored, not consulted</span>`
+      : fl.length ? fl.map(f => `<span class="tag floor">${f}</span>`).join(" ")
+      : `<span class="note">clear</span>`;
+    const edges = j && (j.duplicateOf || (j.supersedes || []).length || j.threadClosed)
+      ? `<div class="note">${j.duplicateOf ? `Duplicate of ${j.duplicateOf}. ` : ""}${(j.supersedes || []).length ? `Supersedes ${j.supersedes.join(", ")}. ` : ""}${j.threadClosed ? "Thread closed by a later observation." : ""}</div>`
+      : "";
+    return `<tr class="${o.droppedAt ? "dropped" : ""} ${STATE.changed.includes(o.id) ? "flash" : ""}">
+      <td class="num"><code>${o.id}</code></td>
+      <td>${esc(o.content)}${edges}${o.droppedAt ? `<div class="note">Dropped by the ${o.droppedAt} path. Still in the ledger, still reachable through recall.</div>` : ""}</td>
+      <td class="num">${o.tokens}</td>
+      <td><span class="tag ${o.observerLabel}">${o.observerLabel}</span></td>
+      <td><span class="tag ${tier}">${tier}</span></td>
+      <td class="num">${retCell}</td>
+      <td>${floorCell}</td>
+      <td><span class="tag">${o.coverage}</span></td>
+    </tr>`;
+  }).join("");
+  $("poolBody").innerHTML = rows || `<tr><td colspan="8" class="note">Pool is empty. Observe a chunk.</td></tr>`;
+
+  const pool = activePool(STATE);
+  const tokens = poolTokens(pool);
+  const cap = pool.length ? maxDropCountForPool(pool, tokens, use) : 0;
+  $("poolNote").innerHTML =
+    `Struck-through rows are dropped. "Ranked as" is the tier every downstream consumer actually sees.
+     Drop cap right now: <strong>${cap}</strong> (fullness ${(tokens / POLICY.poolBudgetTokens * 100).toFixed(0)} percent,
+     skip below ${POLICY.skipFullness * 100} percent, ratio curve ${POLICY.dropMinRatio} to ${POLICY.dropMaxRatio}).
+     Retention cut points: medium ${POLICY.tierMedium}, high ${POLICY.tierHigh}, critical ${POLICY.tierCritical}.
+     Floor probability ${POLICY.floorProbability}. Confidence floor ${POLICY.scoreConfidenceFloor}.
+     Every one of those numbers lives in code, not in a prompt.`;
+}
+
+function renderDrop() {
+  const d = STATE.lastDrop;
+  if (!d) { $("dropPanel").innerHTML = `<p class="note">No drop run yet.</p>`; return; }
+  const head = d.path === "model" ? "DeepSeek dropper, as it ships"
+    : d.path === "code" ? "Code-only drop selection"
+    : "Shadow comparison, both paths";
+  const sub = d.path === "model" ? "One agentLoop run, thinking high. The model's entire contribution is the id list."
+    : d.path === "code" ? "Zero model calls. Every input was judged at write time."
+    : "Nothing was removed. Both paths computed on the same pool.";
+  $("dropPanel").innerHTML = `
+    <h3>${esc(head)}</h3>
+    <p class="note">${esc(sub)}</p>
+    <table>
+      <tr><th>Cap from the shipped curve</th><td class="num">${d.cap}</td></tr>
+      ${d.modelDropped !== undefined ? `<tr><th>Model path would drop</th><td>${d.modelDropped.join(", ") || "(none)"}</td></tr>` : ""}
+      <tr><th>${d.path === "model" ? "Model proposed" : "Ranked candidates"}</th><td>${d.proposed.join(", ") || "(none)"}</td></tr>
+      <tr><th>Excluded by the floor</th><td>${d.excluded.length
+        ? d.excluded.map(i => `<span class="tag floor">${i}</span>`).join(" ")
+        : `<span class="note">${d.path === "model" ? "no floor exists on this path" : "none"}</span>`}</td></tr>
+      <tr><th>${d.path === "shadow" ? "Code path would drop" : "Dropped"}</th><td>${d.dropped.join(", ") || "(none)"}</td></tr>
+    </table>`;
+}
+
+function renderFold() {
+  const f = STATE.lastFold;
+  if (!f) { $("foldPanel").innerHTML = `<p class="note">No fold yet. The fold trim is what decides which observations survive into the compacted context the agent wakes up with. It runs on every compaction with no model call.</p>`; return; }
+  $("foldPanel").innerHTML = `
+    <h3>${esc(f.label)}</h3>
+    <table>
+      <tr><th>Budget</th><td class="num">${POLICY.foldBudgetTokens} tokens, ${f.usedTokens} used</td></tr>
+      <tr><th>Reaches context</th><td>${f.kept.join(", ") || "(none)"}</td></tr>
+      <tr><th>Trimmed away</th><td>${f.trimmed.join(", ") || "(none)"}</td></tr>
+    </table>
+    <p class="note">Trimmed observations stay in the ledger and stay reachable through <code>recall</code>. They just do not appear in the context the agent resumes with.</p>`;
+}
+
+function renderLog() {
+  $("log").innerHTML = STATE.log.length
+    ? [...STATE.log].reverse().map(l => `<div class="${l.kind}">${esc(l.line)}</div>`).join("")
+    : `<div class="note">Nothing yet.</div>`;
+}
+
+function renderFreeplay() {
+  const b = (label, action, cls) => `<button class="${cls || ""}" data-a='${JSON.stringify(action)}'>${esc(label)}</button>`;
+  $("freeplay").innerHTML = `
+    <div class="label">Write memory</div>
+    <div>${b("Observer writes chunk A", { type: "OBSERVE", chunk: "A" })}
+         ${b("Observer writes chunk B", { type: "OBSERVE", chunk: "B" })}
+         ${b("Observer writes chunk C", { type: "OBSERVE", chunk: "C" })}</div>
+    <div class="label">Drop under pressure</div>
+    <div>${b("Dropper as it ships (DeepSeek)", { type: "RUN_DROPPER_MODEL" })}
+         ${b("Dropper, code only (proposed)", { type: "RUN_DROPPER_CODE" }, "primary")}
+         ${b("Compare both without changing anything", { type: "PEEK_BOTH" })}</div>
+    <div class="label">Fold into compacted context</div>
+    <div>${b("Fold: today's ranking", { type: "__FOLD_AS", ranking: "observer" })}
+         ${b("Fold: calibrated tier", { type: "__FOLD_AS", ranking: "tier" })}
+         ${b("Fold: continuous retention", { type: "__FOLD_AS", ranking: "continuous" })}</div>
+    <div class="label">Freshness</div>
+    <div>${b("Reflections changed, judgments go stale", { type: "MARK_STALE" })}
+         ${b("Rescore the cut line only", { type: "RESCORE_BOUNDARY" })}</div>
+    <div class="label">Layer and failure</div>
+    <div>${b("Mode: off", { type: "SET_MODE", mode: "off" })}
+         ${b("Mode: shadow", { type: "SET_MODE", mode: "shadow" })}
+         ${b("Mode: on", { type: "SET_MODE", mode: "on" })}
+         ${b("Key present", { type: "SET_KEY", present: true })}
+         ${b("Key absent", { type: "SET_KEY", present: false })}
+         ${b("Next call: ok", { type: "SET_API", result: "ok" })}
+         ${b("Next call: api error", { type: "SET_API", result: "api error" })}
+         ${b("Next call: timeout", { type: "SET_API", result: "timeout" })}</div>
+    <div class="label">Start over</div>
+    <div>${b("Reset everything", { type: "RESET" })}</div>`;
+}
+
+function renderTabs() {
+  $("tabs").innerHTML = SCENARIOS.map((sc, i) =>
+    `<button class="${i === SCENARIO ? "active" : ""}" data-tab="${i}">${esc(sc.name)}</button>`).join("");
+  const sc = SCENARIOS[SCENARIO];
+  $("tabbody").innerHTML = `
+    <p>${esc(sc.blurb)}</p>
+    <div>${sc.steps.map((st, i) =>
+      `<button class="step ${i < STEP ? "done" : ""} ${i === STEP ? "next" : ""}" data-step="${i}" ${i !== STEP ? "disabled" : ""}>${esc(st.label)}</button>`).join("")}</div>
+    ${STEP >= sc.steps.length ? `<p class="note">Walkthrough complete. Switch tabs, or keep poking with free play. Opening a tab always resets the pool so a scenario runs the same way every time.</p>` : ""}`;
+}
+
+function render() {
+  renderStats(); renderPool(); renderDrop(); renderFold(); renderLog(); renderFreeplay(); renderTabs();
+}
+
+document.addEventListener("click", e => {
+  const btn = e.target.closest("button");
+  if (!btn || btn.disabled) return;
+  if (btn.dataset.a) { dispatch(JSON.parse(btn.dataset.a)); return; }
+  if (btn.dataset.tab !== undefined) {
+    SCENARIO = Number(btn.dataset.tab);
+    STEP = 0;
+    STATE = initialState();
+    STATE.log = [{ line: `Walkthrough started: ${SCENARIOS[SCENARIO].name}. Pool reset to empty.`, kind: "hl" }];
+    render();
+    return;
+  }
+  if (btn.dataset.step !== undefined) {
+    const i = Number(btn.dataset.step);
+    if (i !== STEP) return;
+    STEP++;
+    dispatch(SCENARIOS[SCENARIO].steps[i].action);
+  }
+});
+
+render();
+</script>
+</body>
+</html>

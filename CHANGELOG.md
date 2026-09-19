@@ -1,5 +1,9 @@
 ## [Unreleased]
 
+### Fixed
+
+- **Pi peer-floor type compatibility.** Settings modal factories now use the host coding-agent's `KeybindingsManager` type rather than the direct TUI dependency's type. This preserves compatibility when Pi 0.84.3 resolves a separate transitive TUI version. The import correction changes no runtime statements; the existing minimum-supported CI check covers the regression.
+
 ---
 
 ## [0.5.5] - 2026-09-15

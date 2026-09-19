@@ -4,8 +4,8 @@
  * `ctx.ui.custom`.
  */
 
-import type { ExtensionContext, Theme } from "@earendil-works/pi-coding-agent";
-import type { Component, KeybindingsManager, OverlayOptions, TUI } from "@earendil-works/pi-tui";
+import type { ExtensionContext, KeybindingsManager, Theme } from "@earendil-works/pi-coding-agent";
+import type { Component, OverlayOptions, TUI } from "@earendil-works/pi-tui";
 import { createSettingsModalBody } from "./body";
 import type { Field, SettingsModalFactory, SettingsModalOptions } from "./types";
 

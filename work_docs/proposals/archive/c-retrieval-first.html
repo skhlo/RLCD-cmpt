@@ -1,0 +1,1034 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Throwaway prototype: retrieval-first memory</title>
+<style>
+  :root {
+    --ink: #17191c;
+    --ink-soft: #5b6167;
+    --ink-faint: #8a9199;
+    --paper: #fbfaf8;
+    --card: #ffffff;
+    --rule: #e3e0da;
+    --accent: #1f6f6b;
+    --accent-soft: #e6f1f0;
+    --warn: #9a5b12;
+    --warn-soft: #fbf0df;
+    --bad: #8d3030;
+    --bad-soft: #f8e9e9;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--paper);
+    color: var(--ink);
+    font: 15px/1.55 -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+  .wrap { max-width: 1180px; margin: 0 auto; padding: 32px 28px 96px; }
+  h1 { font-size: 26px; margin: 0 0 6px; letter-spacing: -0.01em; }
+  h2 { font-size: 15px; margin: 0 0 12px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--ink-soft); font-weight: 600; }
+  h3 { font-size: 14px; margin: 0 0 8px; }
+  p { margin: 0 0 10px; }
+  .banner {
+    background: var(--warn-soft); border: 1px solid #e8d3ab; color: var(--warn);
+    padding: 10px 14px; border-radius: 6px; font-size: 13px; margin-bottom: 20px;
+  }
+  .lede { color: var(--ink-soft); max-width: 78ch; margin-bottom: 24px; }
+  .card { background: var(--card); border: 1px solid var(--rule); border-radius: 8px; padding: 18px 20px; margin-bottom: 20px; }
+  .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+  .grid3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px; }
+  button {
+    font: inherit; font-size: 13px; padding: 6px 12px; border-radius: 5px;
+    border: 1px solid var(--rule); background: #fff; color: var(--ink); cursor: pointer;
+  }
+  button:hover { border-color: var(--accent); color: var(--accent); }
+  button.on { background: var(--accent); border-color: var(--accent); color: #fff; }
+  button.step { display: block; width: 100%; text-align: left; margin-bottom: 6px; }
+  button.step.done { opacity: 0.45; }
+  button.step.next { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent-soft); }
+  button.danger:hover { border-color: var(--bad); color: var(--bad); }
+  .row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 10px; }
+  .row .label { font-size: 12px; color: var(--ink-faint); text-transform: uppercase; letter-spacing: 0.05em; min-width: 104px; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th { text-align: left; font-weight: 600; color: var(--ink-faint); font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; padding: 0 6px 6px; border-bottom: 1px solid var(--rule); }
+  td { padding: 7px 6px; border-bottom: 1px solid #f2f0ec; vertical-align: top; }
+  tr.boundary td { border-bottom: 2px dashed var(--accent); }
+  .rank { font-variant-numeric: tabular-nums; color: var(--ink-faint); width: 26px; }
+  .snip { color: var(--ink-soft); }
+  .kind { display: inline-block; font-size: 10px; padding: 1px 5px; border-radius: 3px; background: #f0eee9; color: var(--ink-faint); text-transform: uppercase; letter-spacing: 0.05em; }
+  .kind.obs { background: var(--accent-soft); color: var(--accent); }
+  .up { color: var(--accent); font-weight: 600; font-variant-numeric: tabular-nums; }
+  .down { color: var(--ink-faint); font-variant-numeric: tabular-nums; }
+  .hit { background: #fff6d9; }
+  .target { outline: 2px solid var(--accent); outline-offset: -2px; }
+  .pill { display: inline-block; font-size: 11px; padding: 2px 8px; border-radius: 10px; background: #f0eee9; color: var(--ink-soft); }
+  .pill.good { background: var(--accent-soft); color: var(--accent); }
+  .pill.warn { background: var(--warn-soft); color: var(--warn); }
+  .pill.bad { background: var(--bad-soft); color: var(--bad); }
+  dl { display: grid; grid-template-columns: max-content 1fr; gap: 3px 14px; margin: 0; font-size: 13px; }
+  dt { color: var(--ink-faint); }
+  dd { margin: 0; font-variant-numeric: tabular-nums; }
+  .tabs { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 14px; }
+  .tabs button { font-size: 12px; }
+  .log { font-size: 12px; color: var(--ink-soft); max-height: 150px; overflow-y: auto; }
+  .log div { padding: 2px 0; border-bottom: 1px solid #f4f2ee; }
+  .sim { color: var(--warn); font-size: 11px; }
+  input[type=range] { width: 130px; vertical-align: middle; }
+  .note { font-size: 12px; color: var(--ink-faint); margin-top: 8px; }
+  .empty { color: var(--ink-faint); font-style: italic; padding: 14px 0; }
+  code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; background: #f4f2ee; padding: 1px 4px; border-radius: 3px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <div class="banner">
+    <strong>Throwaway prototype.</strong> Not production code, not installed anywhere, never runs against the live
+    ledger. The BM25 ranking below is the real algorithm with the real constants copied from
+    <code>src/core/search-entries.ts</code>. Every TypeSafe number is <span class="sim">SIMULATED</span> and hand
+    authored. No network calls, no dependencies.
+  </div>
+
+  <h1>Does reranking put the answer on page one?</h1>
+  <p class="lede">
+    Today <code>recall</code> ranks session history with BM25 and shows the agent five results per page out of a
+    shortlist capped at fifty. This demo asks one question: when the agent searches for something it genuinely needs,
+    does the answer land on page one, and does judged relevance move it there? Drive it with the free-play controls,
+    or take the guided walkthroughs, which push the model through the cases that are hard to reason about on paper.
+    The interesting ones are the failures: an answer the keyword search cannot see at all, a rerank that never
+    happens, and a memory pool that grows without the compacted summary growing with it.
+  </p>
+
+  <!-- ─────────────────── FREE PLAY ─────────────────── -->
+  <div class="card">
+    <h2>Free play</h2>
+
+    <div class="row">
+      <span class="label">Search for</span>
+      <span id="queryButtons"></span>
+    </div>
+
+    <div class="row">
+      <span class="label">Rerank mode</span>
+      <button data-mode="off">off (today)</button>
+      <button data-mode="shadow">shadow</button>
+      <button data-mode="on">on</button>
+      <span class="label" style="margin-left:18px">API key</span>
+      <button id="keyToggle"></button>
+    </div>
+
+    <div class="row">
+      <span class="label">Next call fails</span>
+      <button data-fail="none">no failure</button>
+      <button data-fail="timeout" class="danger">timeout</button>
+      <button data-fail="auth" class="danger">401</button>
+      <button data-fail="ratelimit" class="danger">429</button>
+      <button data-fail="flat" class="danger">flat signal</button>
+    </div>
+
+    <div class="row">
+      <span class="label">Run</span>
+      <button id="btnSearch">Run keyword search</button>
+      <button id="btnRerank">Rerank the shortlist</button>
+      <button id="btnPrev">Previous page</button>
+      <button id="btnNext">Next page</button>
+      <button id="btnReset">Reset everything</button>
+    </div>
+
+    <div class="row">
+      <span class="label">Weights</span>
+      <label>answers the query <input type="range" id="wRel" min="0" max="100" step="5"><span id="wRelV"></span></label>
+      <label style="margin-left:14px">stays true <input type="range" id="wDur" min="0" max="100" step="5"><span id="wDurV"></span></label>
+      <label style="margin-left:14px">hard to find by keyword <input type="range" id="wReach" min="0" max="100" step="5"><span id="wReachV"></span></label>
+    </div>
+    <div class="note">
+      Moving a weight re-ranks from stored judgments. Watch the request counter: it does not move. That is the
+      composite-scoring claim, made touchable.
+    </div>
+  </div>
+
+  <!-- ─────────────────── STATE ─────────────────── -->
+  <div class="card">
+    <h2>Current state</h2>
+    <div class="grid3">
+      <dl id="stateA"></dl>
+      <dl id="stateB"></dl>
+      <dl id="stateC"></dl>
+    </div>
+    <div id="verdict" style="margin-top:14px"></div>
+  </div>
+
+  <!-- ─────────────────── RANKINGS ─────────────────── -->
+  <div class="card">
+    <h2>What the agent sees</h2>
+    <div class="grid2">
+      <div>
+        <h3>Keyword ranking (BM25, real algorithm)</h3>
+        <table><tbody id="lexTable"></tbody></table>
+      </div>
+      <div>
+        <h3>Reranked ordering <span class="sim">(simulated Jev)</span></h3>
+        <table><tbody id="rerTable"></tbody></table>
+      </div>
+    </div>
+    <div class="note">
+      Dashed lines are page boundaries, every five rows. The highlighted band is what the agent actually receives:
+      on the left, the page it asked for; on the right, page one of the new order. A green arrow marks an entry
+      promoted across the boundary from a later page. The outlined row is the entry that genuinely answers the
+      query, marked by hand when this demo was written.
+    </div>
+  </div>
+
+  <!-- ─────────────────── POOL AND FOLD ─────────────────── -->
+  <div class="card">
+    <h2>Memory pool and compacted summary</h2>
+    <div class="row">
+      <span class="label">Retention ceiling</span>
+      <input type="range" id="retain" min="1500" max="12000" step="500"><span id="retainV"></span>
+      <button id="btnDropper" style="margin-left:14px">Run the dropper</button>
+      <button id="btnCritical">Exclude critical: <span id="critState"></span></button>
+      <button id="btnComposite">Rank the fold by: <span id="foldState"></span></button>
+      <button id="btnProposeCritical" class="danger">Model proposes only criticals</button>
+    </div>
+    <div class="grid2">
+      <div><dl id="poolState"></dl></div>
+      <div>
+        <h3>In the compacted summary</h3>
+        <div id="foldList" style="font-size:13px"></div>
+      </div>
+    </div>
+    <div class="note">
+      Ceilings here are scaled down roughly sixteen times so that a twelve-observation pool can overflow them. The real
+      values are <code>observationsPoolMaxTokens</code> 20,000 for the projection and a proposed, separate
+      <code>observationsRetainedMaxTokens</code> for retention. Splitting those two numbers is the change. The drop
+      cap curve, the ratios, the relevance ranks and the selection order are the real ones from
+      <code>src/om/agents/dropper/agent.ts</code>.
+    </div>
+  </div>
+
+  <!-- ─────────────────── WALKTHROUGHS ─────────────────── -->
+  <div class="card">
+    <h2>Guided walkthroughs</h2>
+    <div class="tabs" id="tabs"></div>
+    <div class="grid2">
+      <div>
+        <h3 id="scenarioTitle"></h3>
+        <p id="scenarioBody" class="snip"></p>
+        <p id="scenarioWatch" style="font-size:13px"></p>
+      </div>
+      <div id="scenarioSteps"></div>
+    </div>
+  </div>
+
+  <!-- ─────────────────── LOG ─────────────────── -->
+  <div class="card">
+    <h2>What just happened</h2>
+    <div class="log" id="log"></div>
+  </div>
+
+</div>
+
+<!-- ══════════════════════════════════════════════════════════════════
+     THE PURE MODULE. No DOM, no document, no handlers. This is the bit
+     worth keeping: it lifts into the real codebase as-is.
+     ══════════════════════════════════════════════════════════════════ -->
+<script id="model">
+const RetrievalModel = (() => {
+
+  // ── Constants copied verbatim from the installed fork ──────────────
+  const BM25_K = 1.2;
+  const BM25_B = 0.75;
+  const BM25_DELTA = 0.5;
+  const BM25_RELATIVE_FLOOR = 0.2;
+  const SEARCH_RESULT_CAP = 50;          // src/core/search-entries.ts
+  const PAGE_SIZE = 5;                   // src/tools/recall.ts
+  const DROP_SKIP_FULLNESS = 0.1;        // src/om/agents/dropper/agent.ts
+  const DROP_MIN_RATIO = 0.1;
+  const DROP_MAX_RATIO = 0.5;
+  const RELEVANCE_DROP_RANK = { low: 0, medium: 1, high: 2, critical: 3 };
+
+  // Proposed, not existing. Demo-scaled by roughly 16x down so that a
+  // twelve-observation pool can sit well above it. The real projection
+  // ceiling is observationsPoolMaxTokens, 20,000.
+  const PROJECTION_CEILING = 1800;
+
+  // Flat-signal rule from the proposal: when every probability sits in this
+  // band the rerank carries no information and code keeps lexical order.
+  const FLAT_LO = 0.35, FLAT_HI = 0.65;
+
+  const STOPWORDS = new Set(["the","a","an","is","are","was","were","be","been","being","have","has",
+    "had","do","does","did","will","would","could","should","may","might","can","shall","of","in","to",
+    "for","with","on","at","from","by","as","into","through","during","before","after","above","below",
+    "between","out","off","over","under","again","further","then","once","here","there","when","where",
+    "why","how","all","both","each","few","more","most","other","some","such","no","nor","not","only",
+    "own","same","so","than","too","very","just","about","it","its","that","this","what","which","who",
+    "whom","these","those"]);
+
+  // ── The corpus. Realistic fake session history from this estate. ────
+  // kind t = transcript entry, kind o = observation in the memory pool.
+  // judgment = SIMULATED Jev write-time dimensions (slice 5 of the proposal).
+  const CORPUS = [
+    { id:"e01", idx:7,  kind:"t", role:"user",      text:"Set up the blackhole config seed so every worker runs deepseek flash on this host." },
+    { id:"e02", idx:9,  kind:"t", role:"assistant", text:"write config/pi/blackhole-config.json  { \"observerModel\": { \"provider\": \"deepseek\", \"id\": \"deepseek-flash\", \"thinking\": \"off\" }, \"reflectorModel\": { \"thinking\": \"off\" }, \"dropperModel\": { \"provider\": \"deepseek\", \"id\": \"deepseek-flash\", \"thinking\": \"high\" } }" },
+    { id:"e03", idx:11, kind:"t", role:"assistant", text:"Wrote the seed. observerModel thinking off, reflectorModel thinking off, dropperModel thinking high." },
+    { id:"e04", idx:14, kind:"t", role:"user",      text:"why does the dropper get thinking high when the other two are off" },
+    { id:"e05", idx:16, kind:"t", role:"assistant", text:"Dropper effort stays at high because the role asked for medium before it moved off Grok, DeepSeek exposes no medium tier, and the provider effort table routes a medium request onto the next level up." },
+    { id:"e06", idx:19, kind:"t", role:"assistant", text:"edit docs/PI-BLACKHOLE.md  | Role | Model | Thinking | Purpose |  | observerModel | deepseek-flash | off | Extract observations |  | dropperModel | deepseek-flash | high | Prioritize and drop observations under pressure |" },
+    { id:"e07", idx:21, kind:"t", role:"assistant", text:"Table updated: observerModel thinking off, reflectorModel thinking off, dropperModel thinking high." },
+    { id:"e08", idx:24, kind:"t", role:"bash",      text:"rg -n \"thinking\" config/pi/blackhole-config.json   15: \"thinking\": \"low\"   20: \"thinking\": \"off\"   33: \"thinking\": \"off\"   46: dropperModel \"thinking\": \"high\"" },
+    { id:"e09", idx:27, kind:"t", role:"assistant", text:"write example-config.json  dropperModel deepseek-flash thinking high, dropperFallbackModels gpt-5.6-luna thinking max cooldownHours 6" },
+    { id:"e10", idx:31, kind:"t", role:"user",      text:"check that the rollout merge keeps host dropper tuning instead of stamping the seed over it" },
+    { id:"e11", idx:33, kind:"t", role:"assistant", text:"mergeBlackholeConfig spreads wanted then current, so a host dropperModel wins per key and the seed only fills gaps." },
+    { id:"e12", idx:0,  kind:"o", role:"observation", relevance:"high",   tokens:340,
+      text:"Dropper runs thinking high while observer and reflector run thinking off, because DeepSeek bills reasoning tokens as output and the generating roles do not need a chain of thought.",
+      judgment:{ durability:3, answerability:2, supersessionRisk:0.22, facet:"decision", facetConfidence:0.81, reachability:0.88 } },
+    { id:"e13", idx:0,  kind:"o", role:"observation", relevance:"medium", tokens:210,
+      text:"Disabling thinking took completion tokens from 45 to 5 on a mechanical prompt; 39 of the 45 were reasoning.",
+      judgment:{ durability:4, answerability:3, supersessionRisk:0.10, facet:"environment_fact", facetConfidence:0.74, reachability:0.62 } },
+    { id:"e14", idx:0,  kind:"o", role:"observation", relevance:"critical", tokens:520,
+      text:"The estate ruleset blocks that everywhere, including admin bypass of a required check. Repair a squash-merged stacked-PR conflict by merging main with -X ours plus a normal push, never a rebase.",
+      judgment:{ durability:3, answerability:3, supersessionRisk:0.15, facet:"decision", facetConfidence:0.86, reachability:0.09 } },
+    { id:"e15", idx:41, kind:"t", role:"assistant", text:"Force push is blocked by the ruleset. A normal push after merging main is the way through." },
+    { id:"e16", idx:43, kind:"t", role:"bash",      text:"git push --force-with-lease origin feat/stacked   remote: error: GH013: Repository rule violations found for refs/heads/feat/stacked" },
+    { id:"e17", idx:45, kind:"t", role:"user",      text:"we should not be force pushing on shared branches, right" },
+    { id:"e18", idx:47, kind:"t", role:"assistant", text:"Understood. I will not force push." },
+    { id:"e19", idx:0,  kind:"o", role:"observation", relevance:"high",   tokens:260,
+      text:"Never use unconditional force push, hard reset, or forced recursive deletion without explicit confirmation.",
+      judgment:{ durability:4, answerability:2, supersessionRisk:0.06, facet:"preference", facetConfidence:0.79, reachability:0.83 } },
+    { id:"e20", idx:52, kind:"t", role:"assistant", text:"read src/tools/recall.ts   const DEFAULT_RECENT = 25;   const PAGE_SIZE = 5;" },
+    { id:"e21", idx:54, kind:"t", role:"assistant", text:"recall pages at PAGE_SIZE 5 and the shortlist cap is SEARCH_RESULT_CAP 50, so a fifty-hit query is ten pages and the agent normally reads only the first." },
+    { id:"e22", idx:56, kind:"t", role:"bash",      text:"rg -n \"SEARCH_RESULT_CAP|BM25_RELATIVE_FLOOR\" src/core/search-entries.ts   471: const BM25_RELATIVE_FLOOR = 0.2;   472: const SEARCH_RESULT_CAP = 50;" },
+    { id:"e23", idx:0,  kind:"o", role:"observation", relevance:"medium", tokens:190,
+      text:"Recall response budget caps at 48000 characters and the per-entry allocation derives from that single number.",
+      judgment:{ durability:3, answerability:3, supersessionRisk:0.18, facet:"environment_fact", facetConfidence:0.77, reachability:0.71 } },
+    { id:"e24", idx:61, kind:"t", role:"assistant", text:"TYPESAFE_API_KEY is written into ~/.config/shell/env.local.sh at mode 0600 by ops/setup-api-key.sh." },
+    { id:"e25", idx:63, kind:"t", role:"user",      text:"where do the provider keys live on this box again" },
+    { id:"e26", idx:0,  kind:"o", role:"observation", relevance:"critical", tokens:410,
+      text:"DEEPSEEK_API_KEY is not in the shell seam. The DeepSeek credential lives in ~/.pi/agent/auth.json, which is Pi's own store, so a judgment layer cannot reuse the workers' credential path.",
+      judgment:{ durability:3, answerability:3, supersessionRisk:0.12, facet:"environment_fact", facetConfidence:0.88, reachability:0.66 } },
+    { id:"e27", idx:65, kind:"t", role:"assistant", text:"edit ops/setup-api-key.sh   step \"1  TypeSafe     -> TYPESAFE_API_KEY\"   KEY_NAME=\"TYPESAFE_API_KEY\"" },
+    { id:"e28", idx:67, kind:"t", role:"bash",      text:"ls -la ~/.config/shell/   -rw------- env.local.sh   -rw-r--r-- init.sh" },
+    { id:"e29", idx:0,  kind:"o", role:"observation", relevance:"high",   tokens:300,
+      text:"Keep credentials on their owning host and verify the acting account id before any push or GitHub write.",
+      judgment:{ durability:4, answerability:2, supersessionRisk:0.05, facet:"preference", facetConfidence:0.82, reachability:0.58 } },
+    { id:"e30", idx:0,  kind:"o", role:"observation", relevance:"low",    tokens:150,
+      text:"Ran the rollout dry run; no drift reported on this host.",
+      judgment:{ durability:0, answerability:1, supersessionRisk:0.81, facet:"narration", facetConfidence:0.71, reachability:0.34 } },
+    { id:"e31", idx:0,  kind:"o", role:"observation", relevance:"medium", tokens:280,
+      text:"settings.json symlinks into the checkout, so settings drift shows on every machine and must never be committed.",
+      judgment:{ durability:3, answerability:3, supersessionRisk:0.09, facet:"decision", facetConfidence:0.84, reachability:0.69 } },
+    { id:"e32", idx:71, kind:"t", role:"assistant", text:"Compaction triggers at floor(contextWindow * 0.5) because compactAfterRatio is 0.5 and blackhole re-derives it on every evaluation." },
+    { id:"e33", idx:0,  kind:"o", role:"observation", relevance:"critical", tokens:330,
+      text:"selectDropCandidates sorts critical last but never excludes it, so a proposal made entirely of criticals can still drop one.",
+      judgment:{ durability:3, answerability:3, supersessionRisk:0.20, facet:"defect", facetConfidence:0.90, reachability:0.75 } },
+    { id:"e34", idx:0,  kind:"o", role:"observation", relevance:"medium", tokens:290,
+      text:"Blackhole degrades rather than cancelling: an empty summary plus an empty projection returns no compaction and delegates to Pi's native summarizer.",
+      judgment:{ durability:3, answerability:2, supersessionRisk:0.14, facet:"environment_fact", facetConfidence:0.80, reachability:0.64 } },
+    { id:"e35", idx:73, kind:"t", role:"bash",      text:"rg -n \"thinking\" docs/PI-BLACKHOLE.md   88: dropperModel deepseek-flash high Prioritize and drop   98: Thinking is off for the two generating roles" },
+    { id:"e36", idx:75, kind:"t", role:"assistant", text:"Thinking is off for the two generating roles. The dropper keeps high because it makes a judgment rather than text." },
+    { id:"e37", idx:77, kind:"t", role:"assistant", text:"write config/pi/notes.md   dropper thinking high is intentional; observer and reflector thinking off is intentional." },
+    { id:"e38", idx:0,  kind:"o", role:"observation", relevance:"low",    tokens:170,
+      text:"Config seed pins dropperModel thinking high while observer and reflector thinking stay off.",
+      judgment:{ durability:2, answerability:2, supersessionRisk:0.35, facet:"environment_fact", facetConfidence:0.68, reachability:0.80 } },
+  ];
+
+  // ── The queries, with the hand-marked entry that actually answers. ──
+  const QUERIES = {
+    dropper: {
+      label: "why is the dropper on high thinking",
+      text: "why is the dropper on high thinking",
+      answerId: "e05",
+      intent: "decision_history",          // SIMULATED Choice answer
+      intentConfidence: 0.78,
+      rel: { e05:0.94, e36:0.55, e12:0.41, e13:0.22, e38:0.30, e03:0.09, e02:0.07, e06:0.11,
+             e07:0.08, e08:0.06, e09:0.06, e35:0.10, e37:0.12, e10:0.04, e11:0.03, e01:0.03, e04:0.16 },
+    },
+    forcepush: {
+      label: "what did we decide about force pushing",
+      text: "what did we decide about force pushing",
+      answerId: "e14",
+      intent: "decision_history",
+      intentConfidence: 0.71,
+      rel: { e15:0.72, e19:0.45, e16:0.35, e17:0.18, e18:0.05, e14:0.96, e13:0.03 },
+    },
+    recallcap: {
+      label: "recall page size and the result cap",
+      text: "recall page size and the result cap",
+      answerId: "e21",
+      intent: "fact_lookup",
+      intentConfidence: 0.85,
+      rel: { e21:0.93, e22:0.61, e20:0.48, e23:0.29 },
+    },
+    typesafekey: {
+      label: "where does the typesafe key live",
+      text: "where does the typesafe key live",
+      answerId: "e24",
+      intent: "fact_lookup",
+      intentConfidence: 0.83,
+      rel: { e24:0.95, e27:0.44, e26:0.12, e25:0.05, e28:0.31, e29:0.08 },
+    },
+    orientation: {
+      label: "what have we been doing with the config",
+      text: "what have we been doing with the config",
+      answerId: null,
+      intent: "orientation",
+      intentConfidence: 0.69,
+      rel: {},
+    },
+  };
+
+  // ── BM25+, ported straight from src/core/search-entries.ts ─────────
+  const escapeRegex = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const literalRegex = (t) => new RegExp(escapeRegex(t), "i");
+  const filterStopwords = (terms) => {
+    const kept = terms.filter((t) => !STOPWORDS.has(t.toLowerCase()) && t.length > 1);
+    return kept.length > 0 ? kept : terms;
+  };
+  const termFreq = (text, pattern) => {
+    const m = text.match(new RegExp(pattern.source, "gi"));
+    return m ? m.length : 0;
+  };
+
+  function bm25Search(queryText) {
+    const rawTerms = queryText.trim().split(/\s+/);
+    const terms = filterStopwords(rawTerms);
+    const compiled = terms.map((term) => ({ term, pattern: literalRegex(term) }));
+
+    const docs = CORPUS.map((e) => `${e.role} ${e.text}`);
+    const n = docs.length;
+    const df = new Map();
+    let totalLen = 0;
+    for (const doc of docs) {
+      totalLen += doc.split(/\s+/).length;
+      for (const c of compiled) if (c.pattern.test(doc)) df.set(c.term, (df.get(c.term) ?? 0) + 1);
+    }
+    const avgDl = totalLen / Math.max(n, 1);
+
+    const scored = [];
+    for (let i = 0; i < CORPUS.length; i++) {
+      const hay = docs[i];
+      let matchCount = 0;
+      for (const c of compiled) if (c.pattern.test(hay)) matchCount++;
+      if (matchCount === 0) continue;                       // never enters the shortlist
+      const dl = hay.split(/\s+/).length;
+      let score = 0;
+      for (const c of compiled) {
+        const tf = termFreq(hay, c.pattern);
+        if (tf === 0) continue;
+        const docFreq = df.get(c.term) ?? 0;
+        const idf = Math.log((n - docFreq + 0.5) / (docFreq + 0.5) + 1);
+        const tfNorm = (tf * (BM25_K + 1)) / (tf + BM25_K * (1 - BM25_B + (BM25_B * dl) / Math.max(avgDl, 1)));
+        score += idf * (tfNorm + BM25_DELTA);
+      }
+      scored.push({ entry: CORPUS[i], score, matchCount });
+    }
+    scored.sort((a, b) => b.score - a.score);
+
+    const distinct = new Set(compiled.map((c) => c.term.toLowerCase())).size;
+    let floored = scored;
+    if (distinct >= 2 && scored.length > 0 && scored[0].score > 0) {
+      floored = scored.filter((s) => s.score >= scored[0].score * BM25_RELATIVE_FLOOR);
+    }
+    return {
+      hits: floored.slice(0, SEARCH_RESULT_CAP),
+      totalBeforeCap: floored.length,
+      terms,
+      excluded: CORPUS.filter((e) => !floored.some((s) => s.entry.id === e.id)),
+    };
+  }
+
+  // ── The composite. Pure arithmetic over stored judgments. ──────────
+  // Unjudged transcript entries take a neutral 0.5 on both stored dimensions
+  // so that having a judgment is never an automatic advantage.
+  function compositeScore(entry, relevance, w) {
+    const j = entry.judgment;
+    const dur   = j ? j.durability / 4 : 0.5;
+    const reach = j ? 1 - j.reachability : 0.5;
+    return w.rel * relevance + w.dur * dur + w.reach * reach;
+  }
+
+  // Replaces scoreObservation(obs, index, total) in render-summary.ts.
+  // baseRelevance is unchanged so the relevance tier still dominates.
+  function foldScore(obs, index, total, useComposite, w) {
+    const base = obs.relevance === "high" || obs.relevance === "critical" ? 10
+               : obs.relevance === "medium" ? 5 : 1;
+    const recency = total > 1 ? index / (total - 1) : 1;
+    if (!useComposite || !obs.judgment) return base + recency;
+    const j = obs.judgment;
+    return base + recency * 0.5
+         + w.dur * (j.durability / 4) * 2
+         + 0.5 * (j.answerability / 3) * 2
+         - 0.6 * j.supersessionRisk * 2;
+  }
+
+  // ── Dropper, real curve and real ordering ──────────────────────────
+  function maxDropCountForPool(observations, poolTokens, ceiling) {
+    const droppable = observations.filter((o) => o.relevance !== "critical").length;
+    if (droppable === 0) return 0;
+    const fullness = ceiling > 0 ? poolTokens / ceiling : 0;
+    if (fullness < DROP_SKIP_FULLNESS) return 0;
+    const capped = Math.min(1, Math.max(DROP_SKIP_FULLNESS, fullness));
+    const ratio = DROP_MIN_RATIO + ((capped - DROP_SKIP_FULLNESS) / (1 - DROP_SKIP_FULLNESS)) * (DROP_MAX_RATIO - DROP_MIN_RATIO);
+    return Math.max(1, Math.floor(droppable * ratio));
+  }
+
+  function selectDropCandidates(proposedIds, observations, maxDrops, opts) {
+    if (maxDrops <= 0 || proposedIds.length === 0) return [];
+    const byId = new Map(observations.map((o) => [o.id, o]));
+    const seen = new Map();
+    proposedIds.forEach((id, i) => { if (!seen.has(id)) seen.set(id, i); });
+    let rows = Array.from(seen.entries())
+      .map(([id, index]) => ({ id, index, obs: byId.get(id) }))
+      .filter((r) => r.obs);
+    // THE PROPOSED FIX: a policy filter in code, not a question for a model.
+    if (opts.excludeCritical) rows = rows.filter((r) => r.obs.relevance !== "critical");
+    rows.sort((a, b) => {
+      const rel = RELEVANCE_DROP_RANK[a.obs.relevance] - RELEVANCE_DROP_RANK[b.obs.relevance];
+      if (rel !== 0) return rel;
+      if (opts.useComposite && a.obs.judgment && b.obs.judgment) {
+        const keep = (o) => o.judgment.durability / 4 + o.judgment.answerability / 3 - o.judgment.supersessionRisk;
+        const d = keep(a.obs) - keep(b.obs);
+        if (Math.abs(d) > 1e-9) return d;
+      }
+      return a.index - b.index;
+    });
+    return rows.slice(0, maxDrops).map((r) => r.id);
+  }
+
+  function selectFold(observations, ceiling, useComposite, w) {
+    const ranked = observations.map((o, i) => ({ o, i, s: foldScore(o, i, observations.length, useComposite, w) }));
+    ranked.sort((a, b) => b.s - a.s);
+    const kept = [];
+    let tokens = 0;
+    for (const r of ranked) {
+      if (tokens + r.o.tokens > ceiling) continue;
+      kept.push(r.o); tokens += r.o.tokens;
+    }
+    return { kept: kept.sort((a, b) => a.i - b.i), tokens };
+  }
+
+  // ── State ──────────────────────────────────────────────────────────
+  function initial() {
+    return {
+      queryId: "dropper",
+      mode: "off",                 // off | shadow | on
+      keyPresent: true,
+      nextFailure: "none",
+      page: 1,
+      weights: { rel: 0.7, dur: 0.2, reach: 0.1 },
+      retainCeiling: 4000,
+      excludeCritical: false,
+      foldComposite: false,
+      proposeOnlyCriticals: false,
+      droppedIds: [],
+      requests: 0,
+      lastLatencyMs: null,
+      lastReason: "not run",
+      rerank: null,                // null until a rerank lands
+      shadow: null,                // shadow record, never shown to the agent
+      search: null,
+      log: [],
+    };
+  }
+
+  function observations(state) {
+    return CORPUS.filter((e) => e.kind === "o" && !state.droppedIds.includes(e.id));
+  }
+
+  function say(state, line) {
+    return { ...state, log: [line, ...state.log].slice(0, 40) };
+  }
+
+  function runSearch(state) {
+    const q = QUERIES[state.queryId];
+    const search = bm25Search(q.text);
+    const next = { ...state, search, page: 1, rerank: null, shadow: null, lastReason: "keyword only" };
+    return say(next,
+      `Keyword search for "${q.text}" matched ${search.totalBeforeCap} entries on terms [${search.terms.join(", ")}]. ` +
+      `${Math.ceil(search.totalBeforeCap / PAGE_SIZE)} pages of ${PAGE_SIZE}.`);
+  }
+
+  function runRerank(state) {
+    if (!state.search) return say(state, "Run the keyword search first; there is no shortlist to rerank.");
+    const q = QUERIES[state.queryId];
+
+    if (state.mode === "off")
+      return say({ ...state, rerank: null, lastReason: "mode off" },
+        "Rerank mode is off. The agent gets the keyword order, marked (lexical). Zero requests.");
+
+    if (!state.keyPresent)
+      return say({ ...state, rerank: null, lastReason: "key absent" },
+        "TYPESAFE_API_KEY is absent, so the layer never initialised. Zero requests, response identical to today, marked (lexical).");
+
+    // Every path below this line costs exactly one request, including failures.
+    const latency = 220 + 6 * state.search.hits.length;      // SIMULATED
+    const base = { ...state, requests: state.requests + 1, lastLatencyMs: latency, nextFailure: "none" };
+
+    if (state.nextFailure === "timeout")
+      return say({ ...base, rerank: null, lastReason: "timeout" },
+        `Request aborted at the 1200 ms timeout. One request spent, no reordering. The agent gets the keyword order, marked (lexical).`);
+    if (state.nextFailure === "auth")
+      return say({ ...base, rerank: null, lastReason: "401", keyPresent: false },
+        "401 from the API. The layer disables itself for the rest of the session and notifies the operator once. No retry.");
+    if (state.nextFailure === "ratelimit")
+      return say({ ...base, rerank: null, lastReason: "429" },
+        "429 from the API. No retry on the critical path, because a backoff would block the agent. Falls back to the keyword order.");
+
+    const flat = state.nextFailure === "flat";
+    const scored = state.search.hits.map((h) => {
+      const rel = flat ? 0.42 + (h.entry.id.charCodeAt(2) % 7) * 0.03 : (q.rel[h.entry.id] ?? 0.12);
+      return { entry: h.entry, relevance: rel, composite: compositeScore(h.entry, rel, state.weights) };
+    });
+
+    const allFlat = scored.every((s) => s.relevance >= FLAT_LO && s.relevance <= FLAT_HI);
+    if (allFlat)
+      return say({ ...base, rerank: null, lastReason: "flat signal" },
+        "Every candidate probability landed between 0.35 and 0.65, so the rerank carries no information. Code keeps the keyword order, marked (lexical, flat).");
+
+    if (q.intent === "orientation")
+      return say({ ...base, rerank: null, lastReason: "intent orientation" },
+        "The intent Choice came back orientation, so the operator wants coverage rather than one sharp answer. Code keeps the keyword order on purpose.");
+
+    scored.sort((a, b) => b.composite - a.composite);
+    const record = { scored, intent: q.intent, intentConfidence: q.intentConfidence, latency };
+
+    if (state.mode === "shadow")
+      return say({ ...base, shadow: record, rerank: null, lastReason: "shadow" },
+        `Shadow run. The agent already received the keyword page; this ordering went only to the debug log. ` +
+        `Added latency to the session: zero. Promotions across the page boundary: ${countPromotions(state.search.hits, scored)}.`);
+
+    return say({ ...base, rerank: record, shadow: record, lastReason: "reranked" },
+      `Reranked in ${latency} ms (simulated). Intent ${q.intent} at ${q.intentConfidence}. ` +
+      `${countPromotions(state.search.hits, scored)} entries crossed onto page one from a later page.`);
+  }
+
+  function countPromotions(hits, scored) {
+    const lexRank = new Map(hits.map((h, i) => [h.entry.id, i]));
+    let n = 0;
+    scored.slice(0, PAGE_SIZE).forEach((s) => { if ((lexRank.get(s.entry.id) ?? 99) >= PAGE_SIZE) n++; });
+    return n;
+  }
+
+  function runDropper(state) {
+    const obs = observations(state);
+    const poolTokens = obs.reduce((t, o) => t + o.tokens, 0);
+    const maxDrops = maxDropCountForPool(obs, poolTokens, state.retainCeiling);
+    if (maxDrops <= 0)
+      return say(state, `Pool is at ${poolTokens} of ${state.retainCeiling} tokens, under the skip fullness of 0.1. The dropper does not fire.`);
+
+    // SIMULATED model proposal. Ordered as a model might return it.
+    const proposal = state.proposeOnlyCriticals
+      ? obs.filter((o) => o.relevance === "critical").map((o) => o.id)
+      : obs.filter((o) => o.relevance !== "critical").map((o) => o.id).concat(obs.filter((o) => o.relevance === "critical").map((o) => o.id));
+
+    const dropped = selectDropCandidates(proposal, obs, maxDrops, {
+      excludeCritical: state.excludeCritical, useComposite: state.foldComposite,
+    });
+    const criticalsHit = dropped.filter((id) => CORPUS.find((e) => e.id === id).relevance === "critical");
+    const next = { ...state, droppedIds: [...state.droppedIds, ...dropped] };
+    const warn = criticalsHit.length > 0
+      ? ` A critical observation was dropped (${criticalsHit.join(", ")}). That is the preservation gap: selectDropCandidates sorts critical last but never excludes it.`
+      : "";
+    return say(next,
+      `Pool ${poolTokens} of ${state.retainCeiling} tokens, fullness ${(poolTokens / state.retainCeiling).toFixed(2)}, cap allows ${maxDrops}. ` +
+      `Dropped ${dropped.length}: ${dropped.join(", ") || "none"}.${warn}`);
+  }
+
+  // ── The reducer ────────────────────────────────────────────────────
+  function reduce(state, action) {
+    switch (action.type) {
+      case "RESET":        return say(initial(), "Reset to the starting state.");
+      case "SET_QUERY":    return say({ ...initial(), mode: state.mode, keyPresent: state.keyPresent,
+                                        weights: state.weights, requests: state.requests,
+                                        log: state.log, queryId: action.queryId },
+                                      `Now searching for "${QUERIES[action.queryId].label}".`);
+      case "SET_MODE":     return say({ ...state, mode: action.mode, rerank: null, shadow: null },
+                                      `Rerank mode set to ${action.mode}.`);
+      case "TOGGLE_KEY":   return say({ ...state, keyPresent: !state.keyPresent, rerank: null },
+                                      state.keyPresent ? "TYPESAFE_API_KEY removed. This is the normal state on mini and mbp today."
+                                                       : "TYPESAFE_API_KEY present.");
+      case "SET_FAILURE":  return say({ ...state, nextFailure: action.kind },
+                                      action.kind === "none" ? "Next call will succeed." : `Next call will fail with: ${action.kind}.`);
+      case "SEARCH":       return runSearch(state);
+      case "RERANK":       return runRerank(state);
+      case "PAGE":         {
+        const total = state.search ? Math.max(1, Math.ceil(state.search.hits.length / PAGE_SIZE)) : 1;
+        const p = Math.min(total, Math.max(1, state.page + action.delta));
+        return say({ ...state, page: p }, `Page ${p} of ${total}.`);
+      }
+      case "SET_WEIGHT": {
+        const weights = { ...state.weights, [action.key]: action.value };
+        let next = { ...state, weights };
+        // The whole point: re-order from judgments already stored in the ledger.
+        // No request is issued here, in shadow or live.
+        const source = state.rerank ?? state.shadow;
+        if (source) {
+          const scored = source.scored
+            .map((s) => ({ ...s, composite: compositeScore(s.entry, s.relevance, weights) }))
+            .sort((a, b) => b.composite - a.composite);
+          next = {
+            ...next,
+            rerank: state.rerank ? { ...source, scored } : null,
+            shadow: { ...source, scored },
+          };
+        }
+        return say(next, `Weight ${action.key} set to ${action.value.toFixed(2)}. Re-ordered from stored judgments. Requests spent on that: 0.`);
+      }
+      case "SET_RETAIN":   return say({ ...state, retainCeiling: action.value },
+                                      `Retention ceiling set to ${action.value} tokens. The projection ceiling stays at ${PROJECTION_CEILING}, so the compacted summary cannot grow.`);
+      case "TOGGLE_CRITICAL": return say({ ...state, excludeCritical: !state.excludeCritical },
+                                      !state.excludeCritical ? "Critical observations are now excluded from drop candidates, in code."
+                                                             : "Critical observations are sortable again, which is today's behaviour.");
+      case "TOGGLE_FOLD":  return say({ ...state, foldComposite: !state.foldComposite },
+                                      !state.foldComposite ? "Fold now ranks by the composite of stored judgments."
+                                                           : "Fold back to base relevance plus recency, which is today's scoreObservation.");
+      case "TOGGLE_PROPOSAL": return say({ ...state, proposeOnlyCriticals: !state.proposeOnlyCriticals },
+                                      !state.proposeOnlyCriticals ? "The simulated model will now propose only critical observations."
+                                                                  : "The simulated model proposes low and medium first, as it usually would.");
+      case "DROPPER":      return runDropper(state);
+      default:             return state;
+    }
+  }
+
+  return {
+    initial, reduce, observations, selectFold, bm25Search,
+    CORPUS, QUERIES, PAGE_SIZE, SEARCH_RESULT_CAP, PROJECTION_CEILING, countPromotions,
+  };
+})();
+</script>
+
+<!-- ══════════════════════════════════════════════════════════════════
+     THE PAGE. Throwaway shell. Calls into the module; nothing flows back.
+     ══════════════════════════════════════════════════════════════════ -->
+<script>
+const M = RetrievalModel;
+let state = M.initial();
+let walkthrough = { id: "pagethree", step: 0 };
+
+const $ = (id) => document.getElementById(id);
+const esc = (s) => s.replace(/[<>&]/g, (c) => ({ "<": "&lt;", ">": "&gt;", "&": "&amp;" }[c]));
+const clip = (s, n) => (s.length <= n ? s : s.slice(0, n) + "...");
+
+function dispatch(action) { state = M.reduce(state, action); render(); }
+
+// ── Walkthroughs ───────────────────────────────────────────────────
+const SCENARIOS = {
+  pagethree: {
+    title: "The answer is on page three",
+    body: "The agent wants to know why the dropper worker runs at high effort. The session is full of config dumps and " +
+          "doc tables that repeat the words dropper, thinking and high. The one sentence that gives the reason uses " +
+          "fewer of those words, so the keyword ranking pushes it back.",
+    watch: "Watch where the outlined row sits in the left column, then watch it move in the right column. Count the pages " +
+           "the agent would have had to ask for.",
+    steps: [
+      ["Search for the dropper question", () => dispatch({ type: "SET_QUERY", queryId: "dropper" })],
+      ["Run the keyword search", () => dispatch({ type: "SEARCH" })],
+      ["Read page 2", () => dispatch({ type: "PAGE", delta: 1 })],
+      ["Read page 3", () => dispatch({ type: "PAGE", delta: 1 })],
+      ["Go back to page 1", () => dispatch({ type: "PAGE", delta: -2 })],
+      ["Turn reranking on", () => dispatch({ type: "SET_MODE", mode: "on" })],
+      ["Rerank the shortlist", () => dispatch({ type: "RERANK" })],
+    ],
+  },
+  invisible: {
+    title: "The answer the keyword search cannot see",
+    body: "The agent asks what was decided about force pushing. The real answer is a critical observation that says the " +
+          "ruleset blocks it and gives the repair path, but it happens to be phrased without the words force or pushing. " +
+          "BM25 matches nothing in it, so it never reaches the shortlist at all.",
+    watch: "The top keyword hit is the operator restating the question. Reranking improves the ordering of what was " +
+           "retrieved and cannot rescue what was not. This is the honest ceiling of this direction: the shortlist is the " +
+           "limit, and the fix is candidate generation, not ranking. Note also that the second keyword hit is about " +
+           "thinking tokens, matched only because the word 'were' contains the letters 'we'. That is real substring " +
+           "behaviour from the shipped code, not a bug in the demo.",
+    steps: [
+      ["Search for the force push question", () => dispatch({ type: "SET_QUERY", queryId: "forcepush" })],
+      ["Run the keyword search", () => dispatch({ type: "SEARCH" })],
+      ["Turn reranking on", () => dispatch({ type: "SET_MODE", mode: "on" })],
+      ["Rerank the shortlist", () => dispatch({ type: "RERANK" })],
+      ["Page through every hit", () => dispatch({ type: "PAGE", delta: 1 })],
+    ],
+  },
+  degrade: {
+    title: "When the rerank does not happen",
+    body: "Four ways the layer fails: the key is absent, the request times out, the API returns 401, and the probabilities " +
+          "come back flat. Two hosts in this estate have no key today, so the first case is the normal case, not the " +
+          "exception.",
+    watch: "In every case the agent receives exactly today's response in today's order, marked (lexical). Watch the request " +
+           "counter: a timeout and a 401 still cost one request; an absent key costs zero.",
+    steps: [
+      ["Start from the dropper question", () => dispatch({ type: "SET_QUERY", queryId: "dropper" })],
+      ["Run the keyword search", () => dispatch({ type: "SEARCH" })],
+      ["Turn reranking on", () => dispatch({ type: "SET_MODE", mode: "on" })],
+      ["Remove the API key", () => dispatch({ type: "TOGGLE_KEY" })],
+      ["Try to rerank", () => dispatch({ type: "RERANK" })],
+      ["Put the key back", () => dispatch({ type: "TOGGLE_KEY" })],
+      ["Arm a timeout", () => dispatch({ type: "SET_FAILURE", kind: "timeout" })],
+      ["Try to rerank", () => dispatch({ type: "RERANK" })],
+      ["Arm a 401", () => dispatch({ type: "SET_FAILURE", kind: "auth" })],
+      ["Try to rerank", () => dispatch({ type: "RERANK" })],
+      ["Put the key back and arm a flat signal", () => { dispatch({ type: "TOGGLE_KEY" }); dispatch({ type: "SET_FAILURE", kind: "flat" }); }],
+      ["Try to rerank", () => dispatch({ type: "RERANK" })],
+    ],
+  },
+  reweight: {
+    title: "Change the weights, spend nothing",
+    body: "Judge each observation once, on dimensions that do not depend on the query, and store the numbers in the ledger. " +
+          "After that, the operator can change what matters without asking the model anything.",
+    watch: "The request counter. It moves once, for the rerank, and then never again no matter how far the sliders travel. " +
+           "That is the whole composite-scoring argument. Then watch step 6 break it: push durability far enough and a " +
+           "durable but irrelevant fact overtakes the real answer. Weighted averaging assumes the dimensions are " +
+           "independent, which is exactly why relevance has to keep the dominant weight and why a relevance floor belongs " +
+           "in code rather than in a slider.",
+    steps: [
+      ["Search for the dropper question", () => dispatch({ type: "SET_QUERY", queryId: "dropper" })],
+      ["Run the keyword search", () => dispatch({ type: "SEARCH" })],
+      ["Turn reranking on", () => dispatch({ type: "SET_MODE", mode: "on" })],
+      ["Rerank the shortlist", () => dispatch({ type: "RERANK" })],
+      ["Care only about answering the query", () => { dispatch({ type: "SET_WEIGHT", key: "rel", value: 1.0 }); dispatch({ type: "SET_WEIGHT", key: "dur", value: 0 }); dispatch({ type: "SET_WEIGHT", key: "reach", value: 0 }); }],
+      ["Boost things keyword search struggles with", () => { dispatch({ type: "SET_WEIGHT", key: "rel", value: 0.7 }); dispatch({ type: "SET_WEIGHT", key: "reach", value: 0.5 }); }],
+      ["Now push durability much too far", () => { dispatch({ type: "SET_WEIGHT", key: "rel", value: 0.35 }); dispatch({ type: "SET_WEIGHT", key: "dur", value: 0.6 }); dispatch({ type: "SET_WEIGHT", key: "reach", value: 0.1 }); }],
+      ["Back to the proposed defaults", () => { dispatch({ type: "SET_WEIGHT", key: "rel", value: 0.7 }); dispatch({ type: "SET_WEIGHT", key: "dur", value: 0.2 }); dispatch({ type: "SET_WEIGHT", key: "reach", value: 0.1 }); }],
+    ],
+  },
+  shadow: {
+    title: "Shadow mode, before cutting over",
+    body: "Shadow returns the keyword page to the agent first and then runs the rerank without waiting for it, the same " +
+          "fire-and-forget shape the consolidation task already uses. Both orderings go to the debug log.",
+    watch: "The agent's page does not change at all, but the right-hand column fills in and the promotion count appears in " +
+           "the log. Added latency to the session is zero, which is what makes a week of real data cheap to collect.",
+    steps: [
+      ["Search for the dropper question", () => dispatch({ type: "SET_QUERY", queryId: "dropper" })],
+      ["Put the layer in shadow", () => dispatch({ type: "SET_MODE", mode: "shadow" })],
+      ["Run the keyword search", () => dispatch({ type: "SEARCH" })],
+      ["Run the shadow rerank", () => dispatch({ type: "RERANK" })],
+      ["Now cut over", () => dispatch({ type: "SET_MODE", mode: "on" })],
+      ["Rerank for real", () => dispatch({ type: "RERANK" })],
+    ],
+  },
+  growpool: {
+    title: "Let the pool grow without growing the summary",
+    body: "Today one number does two jobs. It sets how full the pool is allowed to get before the dropper fires, and it " +
+          "caps how much of the pool is rendered into the compacted summary. Splitting them lets retention grow while " +
+          "the summary stays exactly the size it is.",
+    watch: "Raise the retention ceiling and run the dropper. Pool tokens go up. The compacted summary stays pinned at the " +
+           "projection ceiling, so the context cost after every compaction does not move. Then switch the fold to the " +
+           "composite and watch which observations earn their place change.",
+    steps: [
+      ["Start from a clean pool", () => dispatch({ type: "RESET" })],
+      ["Keep retention tight", () => dispatch({ type: "SET_RETAIN", value: 1500 })],
+      ["Run the dropper", () => dispatch({ type: "DROPPER" })],
+      ["Start over and relax retention", () => { dispatch({ type: "RESET" }); dispatch({ type: "SET_RETAIN", value: 12000 }); }],
+      ["Run the dropper", () => dispatch({ type: "DROPPER" })],
+      ["Rank the fold by the composite", () => dispatch({ type: "TOGGLE_FOLD" })],
+    ],
+  },
+  critical: {
+    title: "Critical is sorted last, not excluded",
+    body: "selectDropCandidates ranks critical observations last, which reads like protection but is not. If the model " +
+          "proposes nothing but criticals, the sorted list contains nothing but criticals, and the slice takes from the " +
+          "top of it anyway.",
+    watch: "First reproduce the loss, then apply the fix. The fix is a filter in code, not a question for a model. Deciding " +
+           "which memories may die is policy, and policy has to stay somewhere a person can read it.",
+    steps: [
+      ["Start from a clean pool", () => dispatch({ type: "RESET" })],
+      ["Fill the pool so the dropper fires", () => dispatch({ type: "SET_RETAIN", value: 3000 })],
+      ["Make the model propose only criticals", () => dispatch({ type: "TOGGLE_PROPOSAL" })],
+      ["Run the dropper (watch the warning)", () => dispatch({ type: "DROPPER" })],
+      ["Start over and exclude critical in code", () => { dispatch({ type: "RESET" }); dispatch({ type: "SET_RETAIN", value: 3000 }); dispatch({ type: "TOGGLE_PROPOSAL" }); dispatch({ type: "TOGGLE_CRITICAL" }); }],
+      ["Run the dropper again", () => dispatch({ type: "DROPPER" })],
+    ],
+  },
+};
+
+// ── Render ─────────────────────────────────────────────────────────
+function render() {
+  const q = M.QUERIES[state.queryId];
+
+  // query buttons
+  $("queryButtons").innerHTML = Object.entries(M.QUERIES)
+    .map(([id, v]) => `<button data-query="${id}" class="${id === state.queryId ? "on" : ""}">${esc(v.label)}</button>`)
+    .join(" ");
+  Array.from(document.querySelectorAll("[data-query]")).forEach((b) =>
+    b.onclick = () => dispatch({ type: "SET_QUERY", queryId: b.dataset.query }));
+
+  Array.from(document.querySelectorAll("[data-mode]")).forEach((b) => {
+    b.className = b.dataset.mode === state.mode ? "on" : "";
+    b.onclick = () => dispatch({ type: "SET_MODE", mode: b.dataset.mode });
+  });
+  Array.from(document.querySelectorAll("[data-fail]")).forEach((b) => {
+    b.className = (b.dataset.fail === state.nextFailure ? "on " : "") + (b.dataset.fail === "none" ? "" : "danger");
+    b.onclick = () => dispatch({ type: "SET_FAILURE", kind: b.dataset.fail });
+  });
+  $("keyToggle").textContent = state.keyPresent ? "present" : "absent";
+  $("keyToggle").className = state.keyPresent ? "on" : "danger";
+
+  // weights
+  ["rel", "dur", "reach"].forEach((k) => {
+    const cap = k === "rel" ? "Rel" : k === "dur" ? "Dur" : "Reach";
+    $("w" + cap).value = Math.round(state.weights[k] * 100);
+    $("w" + cap + "V").textContent = " " + state.weights[k].toFixed(2);
+  });
+  $("retain").value = state.retainCeiling;
+  $("retainV").textContent = " " + state.retainCeiling + " tokens";
+  $("critState").textContent = state.excludeCritical ? "yes (proposed)" : "no (today)";
+  $("foldState").textContent = state.foldComposite ? "composite (proposed)" : "relevance + recency (today)";
+
+  // state panels
+  const hits = state.search ? state.search.hits : [];
+  const totalPages = Math.max(1, Math.ceil(hits.length / M.PAGE_SIZE));
+  const obs = M.observations(state);
+  const poolTokens = obs.reduce((t, o) => t + o.tokens, 0);
+  const fold = M.selectFold(obs, M.PROJECTION_CEILING, state.foldComposite, state.weights);
+
+  $("stateA").innerHTML = dl([
+    ["Query", esc(q.label)],
+    ["Terms after stopwords", state.search ? state.search.terms.join(", ") : "not searched"],
+    ["Matched entries", state.search ? `${state.search.totalBeforeCap} of ${M.CORPUS.length}` : "-"],
+    ["Pages of 5", state.search ? totalPages : "-"],
+    ["Viewing page", state.search ? `${state.page} of ${totalPages}` : "-"],
+  ]);
+  $("stateB").innerHTML = dl([
+    ["Rerank mode", state.mode],
+    ["API key", state.keyPresent ? "present" : "absent"],
+    ["Armed failure", state.nextFailure],
+    ["Last outcome", state.lastReason],
+    ["Header the agent sees", state.rerank ? "(reranked)" : state.lastReason === "flat signal" ? "(lexical, flat)" : "(lexical)"],
+  ]);
+  $("stateC").innerHTML = dl([
+    ["Requests spent", `<strong>${state.requests}</strong>`],
+    ["Last latency", state.lastLatencyMs ? `${state.lastLatencyMs} ms <span class="sim">sim</span>` : "-"],
+    ["Intent", state.rerank || state.shadow ? `${q.intent} @ ${q.intentConfidence} <span class="sim">sim</span>` : "-"],
+    ["Weights", `rel ${state.weights.rel.toFixed(2)} / dur ${state.weights.dur.toFixed(2)} / reach ${state.weights.reach.toFixed(2)}`],
+    ["Observations live", `${obs.length}, ${poolTokens} tokens`],
+  ]);
+
+  // verdict
+  const answerId = q.answerId;
+  let v = "";
+  if (state.search && answerId) {
+    const lexPos = hits.findIndex((h) => h.entry.id === answerId);
+    const rerPos = state.rerank ? state.rerank.scored.findIndex((s) => s.entry.id === answerId) : -1;
+    if (lexPos === -1) {
+      v = `<span class="pill bad">The answer (${answerId}) never entered the shortlist.</span> ` +
+          `BM25 matched none of its words, so no amount of reranking can reach it. The fix is candidate generation.`;
+    } else {
+      const lexPage = Math.floor(lexPos / M.PAGE_SIZE) + 1;
+      v = `<span class="pill ${lexPage === 1 ? "good" : "warn"}">Keyword ranking puts the answer at position ${lexPos + 1}, page ${lexPage}.</span> `;
+      if (rerPos >= 0) {
+        const rerPage = Math.floor(rerPos / M.PAGE_SIZE) + 1;
+        v += `<span class="pill ${rerPage === 1 ? "good" : "warn"}">Reranked it sits at position ${rerPos + 1}, page ${rerPage}.</span>`;
+      } else if (state.mode !== "off") {
+        v += `<span class="pill">No rerank applied: ${state.lastReason}.</span>`;
+      }
+    }
+  } else if (state.search) {
+    v = `<span class="pill">This query has no single right answer. The intent judgment should say orientation and keep the keyword order.</span>`;
+  }
+  $("verdict").innerHTML = v;
+
+  // ranking tables. The highlighted band is what the agent actually receives:
+  // the page it asked for on the left, page one of the new order on the right.
+  const from = (state.page - 1) * M.PAGE_SIZE;
+  $("lexTable").innerHTML = state.search
+    ? rankRows(hits.map((h) => ({ entry: h.entry, note: `bm25 ${h.score.toFixed(2)} / ${h.matchCount} terms` })),
+               answerId, null, from, from + M.PAGE_SIZE)
+    : `<tr><td class="empty">Run the keyword search.</td></tr>`;
+
+  const rer = state.rerank || (state.mode === "shadow" ? state.shadow : null);
+  const lexRank = new Map(hits.map((h, i) => [h.entry.id, i]));
+  $("rerTable").innerHTML = rer
+    ? rankRows(rer.scored.map((s) => ({
+        entry: s.entry,
+        note: `rel ${s.relevance.toFixed(2)} / score ${s.composite.toFixed(3)}`,
+      })), answerId, lexRank, 0, M.PAGE_SIZE)
+      + (state.mode === "shadow" ? `<tr><td colspan="4" class="empty">Shadow only. The agent never saw this ordering.</td></tr>` : "")
+    : `<tr><td class="empty">${state.mode === "off" ? "Reranking is off. The agent sees the left column." : "No rerank applied: " + state.lastReason + ". The agent sees the left column."}</td></tr>`;
+
+  // pool
+  $("poolState").innerHTML = dl([
+    ["Retention ceiling", `${state.retainCeiling} tokens <span class="sim">demo scale</span>`],
+    ["Pool now", `${poolTokens} tokens across ${obs.length} observations`],
+    ["Fullness", `${(poolTokens / state.retainCeiling).toFixed(2)}`],
+    ["Projection ceiling", `${M.PROJECTION_CEILING} tokens (fixed)`],
+    ["Compacted summary", `<strong>${fold.tokens} tokens across ${fold.kept.length}</strong>`],
+    ["Dropped so far", state.droppedIds.length ? state.droppedIds.join(", ") : "none"],
+  ]);
+  $("foldList").innerHTML = fold.kept.length
+    ? fold.kept.map((o) => `<div style="padding:3px 0;border-bottom:1px solid #f4f2ee"><span class="pill">${o.relevance}</span> <span style="color:#8a9199">${o.id} &middot; ${o.tokens}t</span> ${esc(clip(o.text, 78))}</div>`).join("")
+    : `<div class="empty">Nothing fits.</div>`;
+
+  // walkthroughs
+  $("tabs").innerHTML = Object.entries(SCENARIOS)
+    .map(([id, s]) => `<button data-tab="${id}" class="${id === walkthrough.id ? "on" : ""}">${esc(s.title)}</button>`).join(" ");
+  Array.from(document.querySelectorAll("[data-tab]")).forEach((b) =>
+    b.onclick = () => { walkthrough = { id: b.dataset.tab, step: 0 }; render(); });
+
+  const sc = SCENARIOS[walkthrough.id];
+  $("scenarioTitle").textContent = sc.title;
+  $("scenarioBody").textContent = sc.body;
+  $("scenarioWatch").innerHTML = `<strong>Watch for:</strong> ${esc(sc.watch)}`;
+  $("scenarioSteps").innerHTML = sc.steps
+    .map((s, i) => `<button class="step ${i < walkthrough.step ? "done" : ""} ${i === walkthrough.step ? "next" : ""}" data-step="${i}">${i + 1}. ${esc(s[0])}</button>`)
+    .join("") + `<button class="step" data-step="reset" style="margin-top:8px">Restart this walkthrough</button>`;
+  Array.from(document.querySelectorAll("[data-step]")).forEach((b) => b.onclick = () => {
+    if (b.dataset.step === "reset") { dispatch({ type: "RESET" }); walkthrough.step = 0; render(); return; }
+    const i = Number(b.dataset.step);
+    sc.steps[i][1]();
+    walkthrough.step = Math.max(walkthrough.step, i + 1);
+    render();
+  });
+
+  $("log").innerHTML = state.log.map((l) => `<div>${esc(l)}</div>`).join("") || `<div class="empty">Nothing yet.</div>`;
+}
+
+function dl(pairs) {
+  return pairs.map(([k, v]) => `<dt>${k}</dt><dd>${v}</dd>`).join("");
+}
+
+function rankRows(rows, answerId, lexRank, fromIdx, toIdx) {
+  return rows.map((r, i) => {
+    const onPageOne = i >= fromIdx && i < toIdx;
+    const boundary = (i + 1) % M.PAGE_SIZE === 0 && i !== rows.length - 1 ? " boundary" : "";
+    let move = "";
+    if (lexRank) {
+      const was = lexRank.get(r.entry.id);
+      if (was !== undefined && was !== i) {
+        const d = was - i;
+        move = d > 0 ? `<span class="up">&uarr;${d}</span>` : `<span class="down">&darr;${-d}</span>`;
+      }
+    }
+    const isAnswer = r.entry.id === answerId;
+    return `<tr class="${boundary}${onPageOne ? " hit" : ""}">
+      <td class="rank">${i + 1}</td>
+      <td style="width:64px"><span class="kind ${r.entry.kind === "o" ? "obs" : ""}">${r.entry.kind === "o" ? "memory" : r.entry.role}</span></td>
+      <td class="${isAnswer ? "target" : ""}"><div>${esc(clip(r.entry.text, 118))}</div>
+          <div style="color:#8a9199;font-size:11px">${r.entry.id} &middot; ${r.note}</div></td>
+      <td style="width:42px;text-align:right">${move}</td>
+    </tr>`;
+  }).join("");
+}
+
+// wire the standing controls
+$("btnSearch").onclick = () => dispatch({ type: "SEARCH" });
+$("btnRerank").onclick = () => dispatch({ type: "RERANK" });
+$("btnPrev").onclick = () => dispatch({ type: "PAGE", delta: -1 });
+$("btnNext").onclick = () => dispatch({ type: "PAGE", delta: 1 });
+$("btnReset").onclick = () => { dispatch({ type: "RESET" }); walkthrough.step = 0; render(); };
+$("keyToggle").onclick = () => dispatch({ type: "TOGGLE_KEY" });
+$("btnDropper").onclick = () => dispatch({ type: "DROPPER" });
+$("btnCritical").onclick = () => dispatch({ type: "TOGGLE_CRITICAL" });
+$("btnComposite").onclick = () => dispatch({ type: "TOGGLE_FOLD" });
+$("btnProposeCritical").onclick = () => dispatch({ type: "TOGGLE_PROPOSAL" });
+["rel", "dur", "reach"].forEach((k) => {
+  const cap = k === "rel" ? "Rel" : k === "dur" ? "Dur" : "Reach";
+  $("w" + cap).oninput = (e) => dispatch({ type: "SET_WEIGHT", key: k, value: Number(e.target.value) / 100 });
+});
+$("retain").oninput = (e) => dispatch({ type: "SET_RETAIN", value: Number(e.target.value) });
+
+render();
+</script>
+</body>
+</html>

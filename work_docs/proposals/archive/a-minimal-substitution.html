@@ -1,0 +1,934 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Throwaway prototype - minimal substitution dropper judge</title>
+<style>
+  :root {
+    --ink: #16181d;
+    --ink-soft: #5b6270;
+    --ink-faint: #8b93a1;
+    --line: #e3e6ec;
+    --line-soft: #eef0f4;
+    --bg: #fbfcfd;
+    --panel: #ffffff;
+    --accent: #2f5fd0;
+    --accent-soft: #eaf0fd;
+    --warn-bg: #fff6e8;
+    --warn-line: #e9c98f;
+    --drop-bg: #fdeff0;
+    --keep-bg: #eef7f0;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--ink);
+    font: 15px/1.55 -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+  .wrap { max-width: 1120px; margin: 0 auto; padding: 40px 28px 100px; }
+  h1 { font-size: 26px; letter-spacing: -0.02em; margin: 0 0 6px; }
+  h2 { font-size: 15px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--ink-faint); margin: 38px 0 14px; font-weight: 600; }
+  h3 { font-size: 14px; margin: 0 0 8px; font-weight: 650; }
+  p { margin: 0 0 12px; }
+  .lede { color: var(--ink-soft); max-width: 78ch; }
+  .tag {
+    display: inline-block; font-size: 11px; letter-spacing: 0.1em; text-transform: uppercase;
+    background: var(--warn-bg); border: 1px solid var(--warn-line); color: #8a6420;
+    padding: 3px 9px; border-radius: 4px; margin-bottom: 14px; font-weight: 600;
+  }
+  .panel { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 18px 20px; margin-bottom: 16px; }
+  .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  .grid3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
+  @media (max-width: 860px) { .grid2, .grid3 { grid-template-columns: 1fr; } }
+  button {
+    font: inherit; font-size: 13.5px; background: var(--panel); color: var(--ink);
+    border: 1px solid var(--line); border-radius: 7px; padding: 7px 13px; cursor: pointer;
+  }
+  button:hover { border-color: var(--accent); color: var(--accent); }
+  button.primary { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 600; }
+  button.primary:hover { background: #2450b6; color: #fff; }
+  button.on { background: var(--accent-soft); border-color: var(--accent); color: var(--accent); font-weight: 600; }
+  button:disabled { opacity: 0.4; cursor: default; }
+  button.done { background: var(--line-soft); color: var(--ink-faint); border-color: var(--line-soft); }
+  .row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 10px; }
+  label.ctl { display: block; font-size: 12.5px; color: var(--ink-soft); margin-bottom: 4px; }
+  input[type=range] { width: 100%; accent-color: var(--accent); }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th { text-align: left; font-weight: 600; color: var(--ink-faint); font-size: 11.5px; text-transform: uppercase; letter-spacing: 0.05em; padding: 6px 8px; border-bottom: 1px solid var(--line); }
+  td { padding: 8px; border-bottom: 1px solid var(--line-soft); vertical-align: top; }
+  tr.dropped td { background: var(--drop-bg); }
+  tr.gone td { opacity: 0.45; text-decoration: line-through; }
+  tr.vetoed td { background: var(--warn-bg); }
+  .num { font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .sim { color: var(--accent); font-variant-numeric: tabular-nums; }
+  .pill { display: inline-block; font-size: 11px; padding: 2px 7px; border-radius: 20px; border: 1px solid var(--line); background: var(--line-soft); color: var(--ink-soft); white-space: nowrap; }
+  .pill.crit { background: #fdeef1; border-color: #e7b7c1; color: #96324a; font-weight: 600; }
+  .pill.high { background: #fdf3e6; border-color: #e6cba0; color: #8a5f1c; }
+  .changed { background: var(--accent-soft); border: 1px solid #c3d4f6; border-radius: 8px; padding: 11px 14px; font-size: 13.5px; margin-bottom: 14px; color: #1f3f8f; }
+  .tabs { display: flex; flex-wrap: wrap; gap: 6px; border-bottom: 1px solid var(--line); margin-bottom: 0; }
+  .tabs button { border-radius: 7px 7px 0 0; border-bottom-color: transparent; margin-bottom: -1px; }
+  .tabs button.on { background: var(--panel); border-color: var(--line); border-bottom-color: var(--panel); color: var(--accent); }
+  .tabbody { background: var(--panel); border: 1px solid var(--line); border-top: none; border-radius: 0 0 10px 10px; padding: 18px 20px; }
+  .steps { display: flex; flex-direction: column; gap: 7px; margin-top: 12px; }
+  .step { display: flex; gap: 10px; align-items: center; }
+  .step .idx { width: 20px; color: var(--ink-faint); font-size: 12px; text-align: right; }
+  .kv { display: grid; grid-template-columns: auto 1fr; gap: 3px 14px; font-size: 13px; }
+  .kv dt { color: var(--ink-faint); }
+  .kv dd { margin: 0; font-variant-numeric: tabular-nums; }
+  code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12.5px; background: var(--line-soft); padding: 1px 5px; border-radius: 4px; }
+  .trace { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; line-height: 1.7; color: var(--ink-soft); }
+  .trace b { color: var(--ink); font-weight: 600; }
+  .muted { color: var(--ink-faint); font-size: 12.5px; }
+  .watch { background: var(--line-soft); border-left: 3px solid var(--accent); padding: 9px 13px; font-size: 13.5px; margin: 10px 0 0; }
+  ul.tight { margin: 6px 0 0; padding-left: 18px; }
+  ul.tight li { margin-bottom: 3px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <span class="tag">Throwaway prototype - not production code</span>
+  <h1>Does the minimal substitution drop the right memories?</h1>
+  <p class="lede">
+    An agent keeps a small set of written records about a work session. When there are too many,
+    a &ldquo;dropper&rdquo; deletes some of them. Today a chat model picks which ones. This prototype
+    replaces that pick with a TypeSafe judgment, and leaves everything else exactly as it is:
+    the same limit on how many may go, the same ranking, the same fallback.
+    <strong>The question it answers: with the model reduced to two numbers per record, does the
+    right thing still get dropped, and does a load-bearing record ever slip through?</strong>
+    Press the buttons and watch the records.
+  </p>
+  <p class="muted">
+    Every number shown in <span class="sim">blue</span> is a hard-coded simulation of what the
+    TypeSafe model (Jev) would return. No network calls are made. Token counts and the memory
+    budget are scaled down so the arithmetic is visible; the real budget is 20,000 tokens.
+  </p>
+
+  <div id="changed" class="changed">Nothing has happened yet. Press &ldquo;Run a compaction pass&rdquo; or open a walkthrough tab.</div>
+
+  <h2>Current state</h2>
+  <div class="grid3">
+    <div class="panel">
+      <h3>Settings the estate owns</h3>
+      <dl class="kv" id="policyView"></dl>
+    </div>
+    <div class="panel">
+      <h3>This machine right now</h3>
+      <dl class="kv" id="envView"></dl>
+    </div>
+    <div class="panel">
+      <h3>Memory pressure</h3>
+      <dl class="kv" id="poolView"></dl>
+    </div>
+  </div>
+
+  <div class="panel">
+    <h3>The records in memory</h3>
+    <div style="overflow-x:auto">
+      <table id="poolTable"></table>
+    </div>
+    <p class="muted" style="margin-top:10px">
+      Importance and coverage come from the records themselves. Age is a named bucket the code
+      computes from the timestamp, never a raw date, because the judgment model is documented to
+      read dates as text rather than as ordered quantities.
+    </p>
+  </div>
+
+  <div class="panel" id="passPanel">
+    <h3>What happened on the last pass</h3>
+    <div id="passView" class="muted">No pass has run yet.</div>
+  </div>
+
+  <h2>Free play</h2>
+  <div class="grid2">
+    <div class="panel">
+      <h3>Which judge decides</h3>
+      <div class="row" id="routeBtns"></div>
+      <p class="muted" style="margin:0">
+        <strong>Chat model</strong> is today&rsquo;s behaviour. <strong>Shadow</strong> runs both and
+        lets the chat model own the outcome. <strong>TypeSafe</strong> is the cutover.
+      </p>
+      <h3 style="margin-top:18px">Host conditions</h3>
+      <div class="row" id="envBtns"></div>
+      <h3 style="margin-top:18px">The preservation fix</h3>
+      <div class="row" id="fixBtns"></div>
+      <p class="muted" style="margin:0">
+        Slice 0: never let a record marked critical be deleted, whatever the ranking says.
+      </p>
+    </div>
+    <div class="panel">
+      <h3>Thresholds the code owns</h3>
+      <div style="margin-bottom:14px">
+        <label class="ctl">Propose a record only if its safety score is at least <b id="lblScore"></b> (of 4)</label>
+        <input type="range" id="sldScore" min="0" max="4" step="0.1" />
+      </div>
+      <div style="margin-bottom:14px">
+        <label class="ctl">Keep the record if the model&rsquo;s confidence is below <b id="lblConf"></b></label>
+        <input type="range" id="sldConf" min="0" max="1" step="0.01" />
+      </div>
+      <div style="margin-bottom:14px">
+        <label class="ctl">Veto the drop if &ldquo;sole source of something load-bearing&rdquo; is at least <b id="lblFloor"></b></label>
+        <input type="range" id="sldFloor" min="0" max="1" step="0.01" />
+      </div>
+      <div style="margin-bottom:14px">
+        <label class="ctl">Memory budget: <b id="lblBudget"></b> tokens (scaled down for the demo)</label>
+        <input type="range" id="sldBudget" min="80" max="1600" step="20" />
+      </div>
+      <div class="row">
+        <button class="primary" id="btnRun">Run a compaction pass</button>
+        <button id="btnNormal">Load the everyday pool</button>
+        <button id="btnLeak">Load the small pool</button>
+        <button id="btnReset">Reset everything</button>
+      </div>
+    </div>
+  </div>
+
+  <h2>Guided walkthroughs</h2>
+  <div class="tabs" id="tabs"></div>
+  <div class="tabbody" id="tabbody"></div>
+
+  <h2>Simulated request log</h2>
+  <div class="panel">
+    <div id="logView" class="trace">Nothing sent yet.</div>
+    <p class="muted" style="margin:10px 0 0">
+      Cost uses the published TypeSafe rate of $0.042 per million input tokens, with output not
+      charged. Question and state token counts here are estimates, not measurements.
+    </p>
+  </div>
+
+</div>
+
+<script>
+/* ==========================================================================
+   PURE MODULE - this is the part worth lifting into the real code.
+   No DOM, no globals reached from outside, no side effects.
+   Mirrors pi-blackhole src/om/agents/dropper/agent.ts plus the proposed
+   estate layer.
+   ========================================================================== */
+const DropperJudge = (function () {
+  const DROP_SKIP_FULLNESS = 0.1;
+  const DROP_MAX_FULLNESS = 1.0;
+  const DROP_MIN_RATIO = 0.1;
+  const DROP_MAX_RATIO = 0.5;
+
+  const RELEVANCE_DROP_RANK = { low: 0, medium: 1, high: 2, critical: 3 };
+  const COVERAGE_DROP_RANK = { strong: 0, partial: 1, none: 2 };
+
+  // --- ported verbatim in behaviour from the fork ---------------------------
+
+  function poolFullness(observationTokens, budgetTokens) {
+    if (!isFinite(observationTokens) || observationTokens <= 0) return 0;
+    if (!isFinite(budgetTokens) || budgetTokens <= 0) return 0;
+    return observationTokens / budgetTokens;
+  }
+
+  function maxDropCountForPool(records, observationTokens, budgetTokens, skipFullness) {
+    const skip = skipFullness === undefined ? DROP_SKIP_FULLNESS : skipFullness;
+    const droppable = records.filter(function (r) { return r.relevance !== "critical"; }).length;
+    if (droppable === 0) return 0;
+    const fullness = poolFullness(observationTokens, budgetTokens);
+    if (fullness < skip) return 0;
+    const capped = Math.min(DROP_MAX_FULLNESS, Math.max(skip, fullness));
+    const ratio = DROP_MIN_RATIO +
+      ((capped - skip) / (DROP_MAX_FULLNESS - skip)) * (DROP_MAX_RATIO - DROP_MIN_RATIO);
+    return Math.max(1, Math.floor(droppable * ratio));
+  }
+
+  // The comparator is coverage, then importance, then age, then the order the
+  // judge proposed in. Note that coverage outranks importance.
+  function rankCandidates(ids, records, opts) {
+    const byId = {};
+    records.forEach(function (r) { byId[r.id] = r; });
+    const firstIndex = {};
+    ids.forEach(function (id, i) { if (!(id in firstIndex)) firstIndex[id] = i; });
+
+    let rows = Object.keys(firstIndex).map(function (id) {
+      return { id: id, index: firstIndex[id], rec: byId[id] };
+    }).filter(function (row) { return row.rec !== undefined; });
+
+    // Slice 0: the preservation fix. One filter, one line in the real code.
+    if (opts && opts.excludeCritical) {
+      rows = rows.filter(function (row) { return row.rec.relevance !== "critical"; });
+    }
+
+    rows.sort(function (a, b) {
+      const cov = COVERAGE_DROP_RANK[a.rec.coverage] - COVERAGE_DROP_RANK[b.rec.coverage];
+      const rel = RELEVANCE_DROP_RANK[a.rec.relevance] - RELEVANCE_DROP_RANK[b.rec.relevance];
+      const age = a.rec.ageRank - b.rec.ageRank;
+      return cov || rel || age || (a.index - b.index);
+    });
+    return rows;
+  }
+
+  function selectDropCandidates(ids, records, maxDrops, opts) {
+    if (maxDrops <= 0 || ids.length === 0) return [];
+    return rankCandidates(ids, records, opts).slice(0, maxDrops).map(function (r) { return r.id; });
+  }
+
+  // --- the new layer --------------------------------------------------------
+
+  // Two judgments per record arrive from the model: a safety score on ordered
+  // levels, with its confidence, and a probability that the record is the sole
+  // source of something load-bearing. Everything below is policy, in code.
+  function applyJudgePolicy(records, policy) {
+    return records.map(function (r) {
+      const j = r.jev;
+      if (j.floor >= policy.floorThreshold) {
+        return { id: r.id, propose: false, stage: "floor",
+                 why: "vetoed: sole source of something load-bearing (p=" + j.floor.toFixed(2) + ")" };
+      }
+      if (j.confidence < policy.minConfidence) {
+        return { id: r.id, propose: false, stage: "confidence",
+                 why: "kept: the model is unsure (confidence " + j.confidence.toFixed(2) +
+                      " below " + policy.minConfidence.toFixed(2) + ")" };
+      }
+      if (j.score < policy.proposeScore) {
+        return { id: r.id, propose: false, stage: "score",
+                 why: "kept: still worth something (safety " + j.score.toFixed(1) +
+                      " below " + policy.proposeScore.toFixed(1) + ")" };
+      }
+      return { id: r.id, propose: true, stage: "proposed",
+               why: "proposed (safety " + j.score.toFixed(1) + ", confidence " + j.confidence.toFixed(2) + ")" };
+    });
+  }
+
+  // Order proposals by how safe the model thinks they are. That ordering only
+  // breaks ties in the ranking above; coverage and importance still come first.
+  function typeSafeProposals(records, policy) {
+    const decisions = applyJudgePolicy(records, policy);
+    const byId = {};
+    records.forEach(function (r) { byId[r.id] = r; });
+    const ids = decisions.filter(function (d) { return d.propose; }).map(function (d) { return d.id; });
+    ids.sort(function (a, b) { return byId[b].jev.score - byId[a].jev.score; });
+    return { ids: ids, decisions: decisions };
+  }
+
+  function modelProposals(records) {
+    return records.filter(function (r) { return r.dsProposes; }).map(function (r) { return r.id; });
+  }
+
+  // Which judge actually gets used. Every failure falls through to the
+  // existing chat-model dropper; the TypeSafe path never returns a partial set.
+  function route(policy, env) {
+    if (policy.route === "model") return { taken: "model", why: "configured: chat model" };
+    if (!env.keyPresent) return { taken: "model", why: "no TYPESAFE_API_KEY in this process" };
+    if (env.api === "rejected") return { taken: "model", why: "HTTP 401, suppressed for this session" };
+    if (env.api === "overloaded") return { taken: "model", why: "HTTP 529 after one retry" };
+    if (env.api === "timeout") return { taken: "model", why: "request timed out" };
+    if (policy.route === "shadow") return { taken: "shadow", why: "configured: shadow" };
+    return { taken: "typesafe", why: "configured: TypeSafe" };
+  }
+
+  function requestCost(records) {
+    const stateTokens = records.reduce(function (s, r) { return s + r.tokens; }, 0) + 1200;
+    const questions = records.length * 2;
+    const questionTokens = questions * 110;
+    const total = stateTokens + questionTokens;
+    return {
+      questions: questions,
+      stateTokens: stateTokens,
+      questionTokens: questionTokens,
+      totalTokens: total,
+      usd: (total * 0.042) / 1000000
+    };
+  }
+
+  function runPass(state) {
+    const active = state.pool.filter(function (r) { return r.status === "active"; });
+    const tokens = active.reduce(function (s, r) { return s + r.tokens; }, 0);
+    const fullness = poolFullness(tokens, state.budgetTokens);
+    const cap = maxDropCountForPool(active, tokens, state.budgetTokens, DROP_SKIP_FULLNESS);
+    const r = route(state.policy, state.env);
+    const opts = { excludeCritical: state.policy.criticalFilter };
+
+    const out = {
+      route: r, cap: cap, fullness: fullness, tokens: tokens,
+      activeCount: active.length,
+      decisions: null, ranking: null, selected: [], shadow: null, request: null,
+      note: ""
+    };
+
+    if (cap <= 0) {
+      out.note = "The pool is below the pressure threshold, or every record is critical. Nothing is dropped and the model is never called.";
+      return out;
+    }
+
+    if (r.taken === "model") {
+      const ids = modelProposals(active);
+      out.ranking = rankCandidates(ids, active, opts);
+      out.selected = out.ranking.slice(0, cap).map(function (x) { return x.id; });
+      out.note = "The existing chat-model dropper proposed " + ids.length +
+                 " record(s); the cap and the ranking chose " + out.selected.length + ".";
+      return out;
+    }
+
+    const ts = typeSafeProposals(active, state.policy);
+    out.decisions = ts.decisions;
+    out.request = requestCost(active);
+
+    if (r.taken === "typesafe") {
+      out.ranking = rankCandidates(ts.ids, active, opts);
+      out.selected = out.ranking.slice(0, cap).map(function (x) { return x.id; });
+      out.note = "TypeSafe proposed " + ts.ids.length + " record(s) after the floor veto and the " +
+                 "confidence rule; the cap and the ranking chose " + out.selected.length + ".";
+      return out;
+    }
+
+    // Shadow: both run, the chat model owns the outcome, the difference is logged.
+    const modelIds = modelProposals(active);
+    const modelSel = selectDropCandidates(modelIds, active, cap, opts);
+    const tsSel = selectDropCandidates(ts.ids, active, cap, opts);
+    out.ranking = rankCandidates(modelIds, active, opts);
+    out.selected = modelSel;
+    out.shadow = {
+      modelSelected: modelSel,
+      typeSafeSelected: tsSel,
+      agreed: modelSel.filter(function (id) { return tsSel.indexOf(id) >= 0; }),
+      onlyModel: modelSel.filter(function (id) { return tsSel.indexOf(id) < 0; }),
+      onlyTypeSafe: tsSel.filter(function (id) { return modelSel.indexOf(id) < 0; })
+    };
+    out.note = "Shadow: the outcome follows the chat model. TypeSafe's answer is written down only.";
+    return out;
+  }
+
+  // --- reducer --------------------------------------------------------------
+
+  function reduce(state, action) {
+    const next = JSON.parse(JSON.stringify(state));
+    switch (action.type) {
+      case "SET_ROUTE": next.policy.route = action.value; break;
+      case "SET_KEY": next.env.keyPresent = action.value; break;
+      case "SET_API": next.env.api = action.value; break;
+      case "SET_FIX": next.policy.criticalFilter = action.value; break;
+      case "SET_SCORE": next.policy.proposeScore = action.value; break;
+      case "SET_CONF": next.policy.minConfidence = action.value; break;
+      case "SET_FLOOR": next.policy.floorThreshold = action.value; break;
+      case "SET_BUDGET": next.budgetTokens = action.value; break;
+      case "LOAD_POOL":
+        next.pool = JSON.parse(JSON.stringify(action.pool));
+        next.budgetTokens = action.budgetTokens;
+        next.pass = null; next.passCount = 0; next.log = [];
+        break;
+      case "RUN": {
+        const result = runPass(next);
+        next.passCount = next.passCount + 1;
+        result.passNumber = next.passCount;
+        result.selected.forEach(function (id) {
+          const rec = next.pool.find(function (r) { return r.id === id; });
+          if (rec) { rec.status = "dropped"; rec.droppedOnPass = next.passCount; }
+        });
+        next.pass = result;
+        if (result.request) {
+          next.log.unshift({
+            pass: next.passCount,
+            route: result.route.taken,
+            questions: result.request.questions,
+            tokens: result.request.totalTokens,
+            usd: result.request.usd
+          });
+        } else {
+          next.log.unshift({ pass: next.passCount, route: result.route.taken, questions: 0, tokens: 0, usd: 0 });
+        }
+        break;
+      }
+      default: break;
+    }
+    return next;
+  }
+
+  return {
+    reduce: reduce,
+    runPass: runPass,
+    route: route,
+    maxDropCountForPool: maxDropCountForPool,
+    selectDropCandidates: selectDropCandidates,
+    rankCandidates: rankCandidates,
+    applyJudgePolicy: applyJudgePolicy,
+    requestCost: requestCost,
+    RELEVANCE_DROP_RANK: RELEVANCE_DROP_RANK,
+    COVERAGE_DROP_RANK: COVERAGE_DROP_RANK
+  };
+})();
+
+/* ==========================================================================
+   FIXTURES - realistic fake records. The jev block is SIMULATED.
+   ========================================================================== */
+
+function rec(id, text, relevance, coverage, age, ageRank, tokens, score, confidence, floor, dsProposes) {
+  return {
+    id: id, text: text, relevance: relevance, coverage: coverage,
+    age: age, ageRank: ageRank, tokens: tokens,
+    jev: { score: score, confidence: confidence, floor: floor },
+    dsProposes: dsProposes, status: "active", droppedOnPass: null
+  };
+}
+
+const POOL_NORMAL = [
+  rec("a1c4", "Operator ruled the critical-preservation fix ships as its own commit, before the judge layer.",
+      "high", "partial", "earlier in this session", 60, 120, 0.4, 0.88, 0.94, false),
+  rec("b2d9", "Ran the test suite again; still green.",
+      "low", "none", "a few minutes ago", 80, 40, 4.3, 0.91, 0.03, true),
+  rec("c3e1", "Ran the test suite; still green.",
+      "low", "none", "earlier in this session", 55, 38, 4.4, 0.93, 0.02, true),
+  rec("d4f7", "The rollout merges the blackhole config per key, because a plain copy would discard edits made through /blackhole configure.",
+      "medium", "strong", "earlier today", 30, 150, 3.6, 0.72, 0.11, true),
+  rec("e5a2", "TYPESAFE_API_KEY lives in ~/.config/shell/env.local.sh at 0600; DEEPSEEK_API_KEY does not, it is in Pi's own auth store.",
+      "critical", "none", "earlier today", 32, 130, 0.6, 0.85, 0.97, true),
+  rec("f6b8", "A squash merge makes git branch -d refuse. Keep the branch, never force-delete it.",
+      "high", "partial", "yesterday", 15, 95, 1.2, 0.66, 0.89, false),
+  rec("a7c3", "Fixed the failing check in scripts/rollout-plan.ts at line 147.",
+      "medium", "partial", "earlier in this session", 58, 85, 3.4, 0.58, 0.91, true),
+  rec("b8d5", "Pinned pi-blackhole at 51e4cfe, which is identical to upstream v0.5.5.",
+      "medium", "strong", "yesterday", 14, 110, 3.8, 0.79, 0.18, true),
+  rec("c9e6", "Reading docs.typesafe.ai; the context window is 64k in total.",
+      "medium", "none", "a few minutes ago", 82, 80, 3.1, 0.31, 0.22, true),
+  rec("d1f2", "Operator said never to arm auto-merge on dotfiles.",
+      "critical", "strong", "older than a week", 4, 72, 1.8, 0.81, 0.95, false)
+];
+
+// A small pool where the cap is one. Built to expose the ranking order.
+const POOL_LEAK = [
+  rec("k1a0", "Operator approved replacing the mini on 2026-08-08, keeping the same identity and Main Session.",
+      "critical", "strong", "older than a week", 5, 90, 3.7, 0.83, 0.18, true),
+  rec("k2b1", "Checked the debug log; nothing new in it.",
+      "low", "none", "a few minutes ago", 90, 30, 4.2, 0.90, 0.02, true),
+  rec("k3c2", "Re-read docs/ROLLOUT.md to check the host table.",
+      "medium", "partial", "earlier today", 40, 45, 3.9, 0.80, 0.05, true)
+];
+
+const INITIAL = {
+  pool: JSON.parse(JSON.stringify(POOL_NORMAL)),
+  budgetTokens: 1000,
+  policy: {
+    route: "model",
+    proposeScore: 2.5,
+    minConfidence: 0.5,
+    floorThreshold: 0.25,
+    criticalFilter: false
+  },
+  env: { keyPresent: true, api: "ok" },
+  pass: null,
+  passCount: 0,
+  log: []
+};
+
+/* ==========================================================================
+   PAGE - throwaway shell. Nothing here reaches back into the module.
+   ========================================================================== */
+
+let state = JSON.parse(JSON.stringify(INITIAL));
+let lastMessage = "Nothing has happened yet. Press “Run a compaction pass” or open a walkthrough tab.";
+let activeTab = 0;
+let stepIndex = 0;
+
+function dispatch(action, message) {
+  state = DropperJudge.reduce(state, action);
+  if (message) lastMessage = message;
+  render();
+}
+
+const ROUTE_LABEL = { model: "Chat model (today)", shadow: "Shadow (both)", typesafe: "TypeSafe (Jev)" };
+const API_LABEL = { ok: "responding", overloaded: "overloaded (529)", rejected: "rejecting the key (401)", timeout: "timing out" };
+
+function esc(s) {
+  return String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+
+function renderPolicy() {
+  const p = state.policy;
+  document.getElementById("policyView").innerHTML =
+    "<dt>Judge</dt><dd>" + ROUTE_LABEL[p.route] + "</dd>" +
+    "<dt>Propose at safety</dt><dd>" + p.proposeScore.toFixed(1) + " and above</dd>" +
+    "<dt>Keep below confidence</dt><dd>" + p.minConfidence.toFixed(2) + "</dd>" +
+    "<dt>Floor veto at</dt><dd>" + p.floorThreshold.toFixed(2) + "</dd>" +
+    "<dt>Critical records</dt><dd>" + (p.criticalFilter ? "protected (slice 0 on)" : "<b>droppable (slice 0 off)</b>") + "</dd>";
+}
+
+function renderEnv() {
+  document.getElementById("envView").innerHTML =
+    "<dt>TypeSafe key</dt><dd>" + (state.env.keyPresent ? "present in this process" : "<b>absent</b>") + "</dd>" +
+    "<dt>TypeSafe API</dt><dd>" + API_LABEL[state.env.api] + "</dd>" +
+    "<dt>Passes run</dt><dd>" + state.passCount + "</dd>";
+}
+
+function renderPool() {
+  const active = state.pool.filter(function (r) { return r.status === "active"; });
+  const tokens = active.reduce(function (s, r) { return s + r.tokens; }, 0);
+  const fullness = state.budgetTokens > 0 ? tokens / state.budgetTokens : 0;
+  const cap = DropperJudge.maxDropCountForPool(active, tokens, state.budgetTokens, 0.1);
+  const crit = active.filter(function (r) { return r.relevance === "critical"; }).length;
+  document.getElementById("poolView").innerHTML =
+    "<dt>Records kept</dt><dd>" + active.length + " (" + crit + " critical)</dd>" +
+    "<dt>Records deleted</dt><dd>" + (state.pool.length - active.length) + "</dd>" +
+    "<dt>Tokens in use</dt><dd>" + tokens + " of " + state.budgetTokens + "</dd>" +
+    "<dt>Fullness</dt><dd>" + Math.round(fullness * 100) + "%</dd>" +
+    "<dt>Most that may go</dt><dd>" + cap + " this pass</dd>";
+}
+
+function relPill(r) {
+  const cls = r === "critical" ? "pill crit" : (r === "high" ? "pill high" : "pill");
+  return '<span class="' + cls + '">' + r + "</span>";
+}
+
+function renderTable() {
+  const pass = state.pass;
+  const dec = {};
+  if (pass && pass.decisions) pass.decisions.forEach(function (d) { dec[d.id] = d; });
+  const selected = pass ? pass.selected : [];
+
+  let html = "<thead><tr>" +
+    "<th>Record</th><th>Importance</th><th>Covered by<br>conclusions</th><th>Age</th><th class='num'>Tokens</th>" +
+    "<th class='num'>Safety<br>(sim)</th><th class='num'>Confidence<br>(sim)</th><th class='num'>Sole source<br>(sim)</th>" +
+    "<th>Chat model<br>(sim)</th><th>What happened</th></tr></thead><tbody>";
+
+  state.pool.forEach(function (r) {
+    const gone = r.status === "dropped";
+    const justDropped = selected.indexOf(r.id) >= 0;
+    const d = dec[r.id];
+    let cls = "";
+    if (gone) cls = justDropped ? "dropped" : "gone";
+    else if (d && d.stage === "floor") cls = "vetoed";
+    let what;
+    if (gone && justDropped) what = "<b>deleted on this pass</b>";
+    else if (gone) what = "deleted on pass " + r.droppedOnPass;
+    else if (d) what = esc(d.why);
+    else if (pass && pass.route.taken === "model") what = r.dsProposes ? "proposed, ranked below the cap" : "not proposed";
+    else what = "not yet judged";
+
+    html += "<tr class='" + cls + "'>" +
+      "<td><code>" + r.id + "</code><br>" + esc(r.text) + "</td>" +
+      "<td>" + relPill(r.relevance) + "</td>" +
+      "<td>" + r.coverage + "</td>" +
+      "<td>" + esc(r.age) + "</td>" +
+      "<td class='num'>" + r.tokens + "</td>" +
+      "<td class='num sim'>" + r.jev.score.toFixed(1) + "</td>" +
+      "<td class='num sim'>" + r.jev.confidence.toFixed(2) + "</td>" +
+      "<td class='num sim'>" + r.jev.floor.toFixed(2) + "</td>" +
+      "<td class='sim'>" + (r.dsProposes ? "would drop" : "would keep") + "</td>" +
+      "<td>" + what + "</td></tr>";
+  });
+  html += "</tbody>";
+  document.getElementById("poolTable").innerHTML = html;
+}
+
+function renderPass() {
+  const el = document.getElementById("passView");
+  const pass = state.pass;
+  if (!pass) { el.className = "muted"; el.innerHTML = "No pass has run yet."; return; }
+  el.className = "";
+
+  let html = "<dl class='kv'>" +
+    "<dt>Judge used</dt><dd><b>" + (pass.route.taken === "typesafe" ? "TypeSafe" : pass.route.taken === "shadow" ? "Shadow" : "Chat model") +
+      "</b> &nbsp;<span class='muted'>(" + esc(pass.route.why) + ")</span></dd>" +
+    "<dt>Records considered</dt><dd>" + pass.activeCount + "</dd>" +
+    "<dt>Fullness</dt><dd>" + Math.round(pass.fullness * 100) + "%</dd>" +
+    "<dt>Hard cap</dt><dd>" + pass.cap + "</dd>" +
+    "<dt>Deleted</dt><dd>" + (pass.selected.length ? pass.selected.map(function (i) { return "<code>" + i + "</code>"; }).join(" ") : "nothing") + "</dd>" +
+    "</dl><p style='margin:12px 0 0'>" + esc(pass.note) + "</p>";
+
+  if (pass.ranking && pass.ranking.length) {
+    html += "<h3 style='margin-top:16px'>How the ranking ordered the proposals</h3><div class='trace'>";
+    pass.ranking.forEach(function (row, i) {
+      const chosen = i < pass.cap;
+      html += (chosen ? "<b>" : "") + (i + 1) + ". " + row.id +
+        "  coverage=" + row.rec.coverage + "(" + DropperJudge.COVERAGE_DROP_RANK[row.rec.coverage] + ")" +
+        "  importance=" + row.rec.relevance + "(" + DropperJudge.RELEVANCE_DROP_RANK[row.rec.relevance] + ")" +
+        "  age=" + row.rec.ageRank +
+        (chosen ? "  <-- inside the cap</b>" : "  (below the cap)") + "<br>";
+    });
+    html += "</div><p class='muted' style='margin:8px 0 0'>Coverage is compared first, then importance, then age. " +
+      "That is why a well-covered critical record can sort ahead of an uncovered trivial one.</p>";
+  }
+
+  if (pass.shadow) {
+    const s = pass.shadow;
+    html += "<h3 style='margin-top:16px'>Shadow comparison</h3><dl class='kv'>" +
+      "<dt>Chat model chose</dt><dd>" + (s.modelSelected.join(", ") || "nothing") + "</dd>" +
+      "<dt>TypeSafe would have chosen</dt><dd class='sim'>" + (s.typeSafeSelected.join(", ") || "nothing") + "</dd>" +
+      "<dt>Agreed on</dt><dd>" + (s.agreed.join(", ") || "nothing") + "</dd>" +
+      "<dt>Only the chat model</dt><dd>" + (s.onlyModel.join(", ") || "nothing") + "</dd>" +
+      "<dt>Only TypeSafe</dt><dd>" + (s.onlyTypeSafe.join(", ") || "nothing") + "</dd></dl>" +
+      "<p class='muted' style='margin:8px 0 0'>The memory follows the chat model. " +
+      "Records in the last row are the expensive direction: things TypeSafe would delete and the chat model would keep.</p>";
+  }
+
+  if (pass.request) {
+    const q = pass.request;
+    html += "<h3 style='margin-top:16px'>The request that was sent (simulated)</h3><div class='trace'>" +
+      "one request &middot; <b>" + q.questions + " questions</b> (a safety score and a sole-source check per record) &middot; " +
+      q.stateTokens + " state tokens + " + q.questionTokens + " question tokens = <b>" + q.totalTokens + "</b> &middot; $" +
+      q.usd.toFixed(5) + "</div>";
+  }
+
+  document.getElementById("changed").innerHTML = esc(lastMessage);
+  el.innerHTML = html;
+}
+
+function renderControls() {
+  const rb = document.getElementById("routeBtns");
+  rb.innerHTML = "";
+  ["model", "shadow", "typesafe"].forEach(function (r) {
+    const b = document.createElement("button");
+    b.textContent = ROUTE_LABEL[r];
+    if (state.policy.route === r) b.className = "on";
+    b.onclick = function () { dispatch({ type: "SET_ROUTE", value: r }, "Judge set to: " + ROUTE_LABEL[r] + ". Nothing else changed until a pass runs."); };
+    rb.appendChild(b);
+  });
+
+  const eb = document.getElementById("envBtns");
+  eb.innerHTML = "";
+  const kb = document.createElement("button");
+  kb.textContent = state.env.keyPresent ? "Key present" : "Key missing";
+  kb.className = state.env.keyPresent ? "on" : "";
+  kb.onclick = function () {
+    dispatch({ type: "SET_KEY", value: !state.env.keyPresent },
+      state.env.keyPresent ? "The TypeSafe key is now missing from this process." : "The TypeSafe key is present again.");
+  };
+  eb.appendChild(kb);
+  ["ok", "overloaded", "rejected", "timeout"].forEach(function (a) {
+    const b = document.createElement("button");
+    b.textContent = API_LABEL[a];
+    if (state.env.api === a) b.className = "on";
+    b.onclick = function () { dispatch({ type: "SET_API", value: a }, "TypeSafe is now " + API_LABEL[a] + "."); };
+    eb.appendChild(b);
+  });
+
+  const fb = document.getElementById("fixBtns");
+  fb.innerHTML = "";
+  [[false, "Off (upstream today)"], [true, "On (slice 0)"]].forEach(function (pair) {
+    const b = document.createElement("button");
+    b.textContent = pair[1];
+    if (state.policy.criticalFilter === pair[0]) b.className = "on";
+    b.onclick = function () {
+      dispatch({ type: "SET_FIX", value: pair[0] },
+        pair[0] ? "Critical records are now protected outright." : "Critical records can be deleted again, as upstream allows today.");
+    };
+    fb.appendChild(b);
+  });
+
+  document.getElementById("lblScore").textContent = state.policy.proposeScore.toFixed(1);
+  document.getElementById("lblConf").textContent = state.policy.minConfidence.toFixed(2);
+  document.getElementById("lblFloor").textContent = state.policy.floorThreshold.toFixed(2);
+  document.getElementById("lblBudget").textContent = state.budgetTokens;
+  document.getElementById("sldScore").value = state.policy.proposeScore;
+  document.getElementById("sldConf").value = state.policy.minConfidence;
+  document.getElementById("sldFloor").value = state.policy.floorThreshold;
+  document.getElementById("sldBudget").value = state.budgetTokens;
+}
+
+function renderLog() {
+  const el = document.getElementById("logView");
+  if (!state.log.length) { el.innerHTML = "Nothing sent yet."; return; }
+  let total = 0, cost = 0;
+  state.log.forEach(function (l) { total += l.tokens; cost += l.usd; });
+  el.innerHTML = state.log.map(function (l) {
+    return "pass " + l.pass + " &middot; route=" + l.route + " &middot; " +
+      (l.questions ? (l.questions + " questions, " + l.tokens + " input tokens, $" + l.usd.toFixed(5))
+                   : "no TypeSafe request made");
+  }).join("<br>") + "<br><b>total: " + total + " input tokens, $" + cost.toFixed(5) + "</b>";
+}
+
+/* ---- walkthroughs ------------------------------------------------------- */
+
+const SCENARIOS = [
+  {
+    name: "Everyday compaction",
+    blurb: "The ordinary case. Ten records, memory at 92 percent, TypeSafe deciding. Six of the ten " +
+           "are vetoed or kept before the ranking is even consulted, four are proposed, and the cap " +
+           "allows three.",
+    watch: "Two surprises. The model proposes more than the cap allows, so the cap and the ranking, " +
+           "not the model, decide what actually goes. And the ranking compares coverage before " +
+           "importance, so two well-covered real facts are deleted ahead of a duplicated 'tests still " +
+           "green' note. Run a second pass and the leftover note finally goes.",
+    steps: [
+      { label: "Start fresh with the everyday pool", action: function () { return { type: "LOAD_POOL", pool: POOL_NORMAL, budgetTokens: 1000 }; }, msg: "Loaded ten records against a 1000-token budget." },
+      { label: "Protect critical records (slice 0 on)", action: function () { return { type: "SET_FIX", value: true }; }, msg: "Critical records are now protected." },
+      { label: "Switch the judge to TypeSafe", action: function () { return { type: "SET_ROUTE", value: "typesafe" }; }, msg: "TypeSafe is now the judge." },
+      { label: "Run a compaction pass", action: function () { return { type: "RUN" }; }, msg: "Pass complete. Read the ranking trace to see which proposals fell below the cap." },
+      { label: "Run a second pass", action: function () { return { type: "RUN" }; }, msg: "Second pass. The pool is smaller, so the cap is smaller too." }
+    ]
+  },
+  {
+    name: "A critical record leaks",
+    blurb: "Three records and a cap of one. The critical record is old and well covered by conclusions, " +
+           "so the model calls it safe. Upstream sorts critical records last by importance, but coverage " +
+           "is compared before importance, so this one sorts first anyway.",
+    watch: "With the fix off, the critical record is the one that gets deleted. This is a live defect on " +
+           "today's chat-model path too, not something TypeSafe introduces.",
+    steps: [
+      { label: "Load the small pool", action: function () { return { type: "LOAD_POOL", pool: POOL_LEAK, budgetTokens: 120 }; }, msg: "Three records, 165 tokens against a 120-token budget. Two are droppable, so the cap is one." },
+      { label: "Leave the fix off (upstream today)", action: function () { return { type: "SET_FIX", value: false }; }, msg: "Critical records are droppable, exactly as upstream allows today." },
+      { label: "Switch the judge to TypeSafe", action: function () { return { type: "SET_ROUTE", value: "typesafe" }; }, msg: "TypeSafe is now the judge." },
+      { label: "Run a pass and watch the critical record go", action: function () { return { type: "RUN" }; }, msg: "The critical record was deleted. Coverage beat importance in the ranking." },
+      { label: "Reload, then turn the fix on", action: function () { return { type: "LOAD_POOL", pool: POOL_LEAK, budgetTokens: 120 }; }, msg: "Pool restored." },
+      { label: "Protect critical records (slice 0 on)", action: function () { return { type: "SET_FIX", value: true }; }, msg: "Critical records are now protected outright." },
+      { label: "Run the same pass again", action: function () { return { type: "RUN" }; }, msg: "This time a droppable record goes instead. One filter, one line of code." }
+    ]
+  },
+  {
+    name: "The veto beats a high score",
+    blurb: "Record a7c3 says a check was fixed in scripts/rollout-plan.ts at line 147. The safety score " +
+           "calls it largely captured elsewhere, at 3.4 out of 4, which is above the propose threshold. " +
+           "The second question says it is the only place that file and line are written down.",
+    watch: "This is the case the second question exists for. A weighted score would have averaged the two " +
+           "signals and deleted the record. A separate veto cannot average.",
+    steps: [
+      { label: "Start fresh with the everyday pool", action: function () { return { type: "LOAD_POOL", pool: POOL_NORMAL, budgetTokens: 1000 }; }, msg: "Loaded ten records." },
+      { label: "Switch the judge to TypeSafe", action: function () { return { type: "SET_ROUTE", value: "typesafe" }; }, msg: "TypeSafe is now the judge." },
+      { label: "Run a pass, then look at row a7c3", action: function () { return { type: "RUN" }; }, msg: "Row a7c3 is highlighted: safety 3.4, but vetoed as the sole source of a file path and line." },
+      { label: "Now raise the veto threshold to 0.95", action: function () { return { type: "SET_FLOOR", value: 0.95 }; }, msg: "The veto now fires only on near-certainty." },
+      { label: "Run the pass again", action: function () { return { type: "RUN" }; }, msg: "With the veto relaxed, a7c3 becomes a proposal. Watch whether the cap still saves it." }
+    ]
+  },
+  {
+    name: "An unsure model keeps the record",
+    blurb: "Record c9e6 is a note about reading the TypeSafe docs. The model scores it 3.1, which is " +
+           "above the propose threshold, but its confidence is only 0.31. The code rule is the same one " +
+           "the old prompt stated in prose: when uncertain, keep.",
+    watch: "Confidence is the reason this design uses a Score rather than a plain yes-or-no. A yes-or-no " +
+           "answer carries no confidence at all, so this rule would have nothing to read.",
+    steps: [
+      { label: "Start fresh with the everyday pool", action: function () { return { type: "LOAD_POOL", pool: POOL_NORMAL, budgetTokens: 1000 }; }, msg: "Loaded ten records." },
+      { label: "Switch the judge to TypeSafe", action: function () { return { type: "SET_ROUTE", value: "typesafe" }; }, msg: "TypeSafe is now the judge." },
+      { label: "Run a pass, then look at row c9e6", action: function () { return { type: "RUN" }; }, msg: "Row c9e6 was kept because confidence 0.31 is below the 0.50 floor." },
+      { label: "Lower the confidence floor to 0.20", action: function () { return { type: "SET_CONF", value: 0.2 }; }, msg: "The confidence rule is now much more permissive." },
+      { label: "Run the pass again", action: function () { return { type: "RUN" }; }, msg: "c9e6 is now a proposal. This slider is the whole tuning surface for that behaviour." }
+    ]
+  },
+  {
+    name: "No key on this machine",
+    blurb: "mbp and mini have no TypeSafe key in their shell seam, and a Pi started from a GUI bundle " +
+           "rather than a shell will not carry one either. Nothing should break, and nothing should " +
+           "change.",
+    watch: "The judge silently becomes the chat model. The deleted records are the ones the chat model " +
+           "would have chosen anyway, which is exactly today's behaviour.",
+    steps: [
+      { label: "Start fresh with the everyday pool", action: function () { return { type: "LOAD_POOL", pool: POOL_NORMAL, budgetTokens: 1000 }; }, msg: "Loaded ten records." },
+      { label: "Ask for TypeSafe", action: function () { return { type: "SET_ROUTE", value: "typesafe" }; }, msg: "The configuration asks for TypeSafe." },
+      { label: "Take the key away", action: function () { return { type: "SET_KEY", value: false }; }, msg: "TYPESAFE_API_KEY is no longer in the process." },
+      { label: "Run a pass", action: function () { return { type: "RUN" }; }, msg: "The judge fell back to the chat model. No request was sent and the log says so." },
+      { label: "Give the key back and run again", action: function () { return { type: "SET_KEY", value: true }; }, msg: "Key restored." },
+      { label: "Run a pass", action: function () { return { type: "RUN" }; }, msg: "TypeSafe decides again. No restart, no reinstall, no state to repair." }
+    ]
+  },
+  {
+    name: "TypeSafe is overloaded",
+    blurb: "The service answers 529, or the request times out. The layer retries once and then gives up. " +
+           "The question is what the memory looks like afterwards.",
+    watch: "The pass is not cancelled and the memory is not left half-pruned. The existing chat-model " +
+           "dropper runs instead, exactly as it does today.",
+    steps: [
+      { label: "Start fresh with the everyday pool", action: function () { return { type: "LOAD_POOL", pool: POOL_NORMAL, budgetTokens: 1000 }; }, msg: "Loaded ten records." },
+      { label: "Switch the judge to TypeSafe", action: function () { return { type: "SET_ROUTE", value: "typesafe" }; }, msg: "TypeSafe is now the judge." },
+      { label: "Make TypeSafe overloaded", action: function () { return { type: "SET_API", value: "overloaded" }; }, msg: "TypeSafe now answers 529." },
+      { label: "Run a pass", action: function () { return { type: "RUN" }; }, msg: "One retry, then the chat model ran instead. The memory is in the state today's code would leave it in." },
+      { label: "Make TypeSafe reject the key instead", action: function () { return { type: "SET_API", value: "rejected" }; }, msg: "TypeSafe now answers 401. In the real layer this is suppressed for the rest of the session." },
+      { label: "Run a pass", action: function () { return { type: "RUN" }; }, msg: "Same outcome, different reason. Every failure lands on the same fallback." },
+      { label: "Put TypeSafe back", action: function () { return { type: "SET_API", value: "ok" }; }, msg: "TypeSafe is responding again." }
+    ]
+  },
+  {
+    name: "Shadow mode",
+    blurb: "Both judges run on the same records. The chat model owns the outcome; TypeSafe's answer is " +
+           "only written down. This is how a week of real data gets collected before anything is " +
+           "cut over.",
+    watch: "The last line of the comparison is the one that matters: records TypeSafe would delete and " +
+           "the chat model would keep. Those are the ones a human has to read before a cutover is honest.",
+    steps: [
+      { label: "Start fresh with the everyday pool", action: function () { return { type: "LOAD_POOL", pool: POOL_NORMAL, budgetTokens: 1000 }; }, msg: "Loaded ten records." },
+      { label: "Protect critical records (slice 0 on)", action: function () { return { type: "SET_FIX", value: true }; }, msg: "Critical records are protected." },
+      { label: "Switch the judge to shadow", action: function () { return { type: "SET_ROUTE", value: "shadow" }; }, msg: "Both judges will now run." },
+      { label: "Run a pass", action: function () { return { type: "RUN" }; }, msg: "The memory followed the chat model. The comparison panel shows where the two disagreed." },
+      { label: "Now cut over to TypeSafe", action: function () { return { type: "SET_ROUTE", value: "typesafe" }; }, msg: "One configuration key. Reverting is the same key, back again." },
+      { label: "Run a pass", action: function () { return { type: "RUN" }; }, msg: "TypeSafe now owns the outcome." }
+    ]
+  }
+];
+
+function renderTabs() {
+  const tabs = document.getElementById("tabs");
+  tabs.innerHTML = "";
+  SCENARIOS.forEach(function (s, i) {
+    const b = document.createElement("button");
+    b.textContent = s.name;
+    if (i === activeTab) b.className = "on";
+    b.onclick = function () { activeTab = i; stepIndex = 0; render(); };
+    tabs.appendChild(b);
+  });
+
+  const s = SCENARIOS[activeTab];
+  const body = document.getElementById("tabbody");
+  let html = "<p>" + esc(s.blurb) + "</p><div class='watch'><b>What to watch:</b> " + esc(s.watch) + "</div><div class='steps' id='stepList'></div>";
+  body.innerHTML = html;
+
+  const list = document.getElementById("stepList");
+  s.steps.forEach(function (step, i) {
+    const wrap = document.createElement("div");
+    wrap.className = "step";
+    const idx = document.createElement("span");
+    idx.className = "idx";
+    idx.textContent = (i + 1) + ".";
+    const b = document.createElement("button");
+    b.textContent = step.label;
+    if (i < stepIndex) b.className = "done";
+    else if (i === stepIndex) b.className = "primary";
+    b.disabled = i > stepIndex;
+    b.onclick = function () {
+      stepIndex = i + 1;
+      dispatch(step.action(), step.msg);
+    };
+    wrap.appendChild(idx);
+    wrap.appendChild(b);
+    list.appendChild(wrap);
+  });
+
+  if (stepIndex >= s.steps.length) {
+    const done = document.createElement("p");
+    done.className = "muted";
+    done.style.marginTop = "12px";
+    done.textContent = "Walkthrough finished. Free play is still live above, or pick another tab.";
+    body.appendChild(done);
+  }
+}
+
+function render() {
+  renderPolicy();
+  renderEnv();
+  renderPool();
+  renderTable();
+  renderPass();
+  renderControls();
+  renderLog();
+  renderTabs();
+  document.getElementById("changed").innerHTML = esc(lastMessage);
+}
+
+document.getElementById("sldScore").oninput = function (e) {
+  dispatch({ type: "SET_SCORE", value: parseFloat(e.target.value) }, "Propose threshold set to " + parseFloat(e.target.value).toFixed(1) + ".");
+};
+document.getElementById("sldConf").oninput = function (e) {
+  dispatch({ type: "SET_CONF", value: parseFloat(e.target.value) }, "Confidence floor set to " + parseFloat(e.target.value).toFixed(2) + ".");
+};
+document.getElementById("sldFloor").oninput = function (e) {
+  dispatch({ type: "SET_FLOOR", value: parseFloat(e.target.value) }, "Veto threshold set to " + parseFloat(e.target.value).toFixed(2) + ".");
+};
+document.getElementById("sldBudget").oninput = function (e) {
+  dispatch({ type: "SET_BUDGET", value: parseInt(e.target.value, 10) }, "Memory budget set to " + e.target.value + " tokens.");
+};
+document.getElementById("btnRun").onclick = function () { dispatch({ type: "RUN" }, "Ran a compaction pass."); };
+document.getElementById("btnNormal").onclick = function () { stepIndex = 0; dispatch({ type: "LOAD_POOL", pool: POOL_NORMAL, budgetTokens: 1000 }, "Loaded the everyday pool of ten records."); };
+document.getElementById("btnLeak").onclick = function () { stepIndex = 0; dispatch({ type: "LOAD_POOL", pool: POOL_LEAK, budgetTokens: 120 }, "Loaded the small pool of three records; the cap will be one."); };
+document.getElementById("btnReset").onclick = function () {
+  state = JSON.parse(JSON.stringify(INITIAL));
+  stepIndex = 0;
+  lastMessage = "Everything reset to the starting state: chat model judge, fix off, everyday pool.";
+  render();
+};
+
+render();
+</script>
+</body>
+</html>

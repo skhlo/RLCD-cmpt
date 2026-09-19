@@ -5,5 +5,13 @@
   "semicolons": "always",
   "trailingComma": "all",
   "quoteStyle": "double",
-  "ignorePatterns": ["dist/", "node_modules/", "pnpm-lock.yaml", ".pi/", "docs/", "tests/fixtures/"]
+  "ignorePatterns": [
+    "dist/",
+    "node_modules/",
+    "pnpm-lock.yaml",
+    ".pi/",
+    "docs/",
+    "tests/fixtures/",
+    "work_docs/proposals/archive/"
+  ]
 }
