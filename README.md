@@ -3,8 +3,9 @@
 A design-stage fork of [pi-blackhole](https://github.com/k0valik/pi-blackhole),
 exploring Jev's RLCD-trained judgments for session-memory retrieval. Runtime
 behavior remains upstream `v0.5.5`, with a type-only Pi peer-floor compatibility
-correction. A deterministic offline lexical replay evaluator is available; the
-Jev integration and runtime reranking are not implemented or installed.
+correction. Deterministic lexical replay and an evaluation-only, opt-in bounded
+Jev CLI are available. No Jev quality claim, live evidence, runtime reranking, or
+installed integration is included.
 
 Start with the [refined retrieval-first proposal](work_docs/proposals/retrieval-first-final.md)
 and the [original proposals and runnable HTML prototypes](work_docs/proposals/README.md).
@@ -29,6 +30,29 @@ pnpm --silent replay:lexical -- \
 
 See [the evaluator documentation](docs/replay-evaluator.md) for fixture schemas,
 partition isolation, frozen labeling rules, and reproducible manifests.
+
+## Evaluation-only Jev workflow
+
+The bounded Jev evaluator freezes its model, prompt, budgets, thresholds, and input
+digests before held-out use. Preparation is credential-free and produces a
+`BLOCKED` plan for the public synthetic fixtures:
+
+```sh
+pnpm --silent replay:jev -- prepare \
+  --corpus fixtures/replay/public-v1/tuning/corpus.jsonl \
+  --queries fixtures/replay/public-v1/tuning/queries.json \
+  --truth fixtures/replay/public-v1/tuning/truth.json \
+  --partition tuning \
+  --held-out-corpus fixtures/replay/public-v1/held-out/corpus.jsonl \
+  --held-out-queries fixtures/replay/public-v1/held-out/queries.json \
+  --held-out-truth fixtures/replay/public-v1/held-out/truth.json \
+  --input-kind synthetic
+```
+
+The native adapter is operator-run only after explicit approval. Synthetic and
+scripted runs test mechanics but cannot pass empirical gates. No runtime recall
+path, setting, prompt, or cache changes. See
+[the bounded Jev evaluator documentation](docs/jev-evaluator.md).
 
 ## Upstream pi-blackhole
 
@@ -325,6 +349,7 @@ rm -rf ~/.pi/agent/pi-blackhole
 | **[`example-config.json`](example-config.json)**             | You               | Annotated example config with comments.                                                   |
 | **[`docs/APPEND_COMPACTION.md`](docs/APPEND_COMPACTION.md)** | You, if curious   | Rules for `compactionSummaryMode: "append"`.                                              |
 | **[`docs/replay-evaluator.md`](docs/replay-evaluator.md)**   | Contributors      | Offline lexical replay fixtures, truth rules, metrics, and reproducible manifests.        |
+| **[`docs/jev-evaluator.md`](docs/jev-evaluator.md)**         | Contributors      | Bounded evaluation-only Jev preparation, approval, evidence, and comparison workflow.     |
 
 > **Note:** All docs except `README.md`, `CHANGELOG.md` (package root, read by `/blackhole changelog`), and `llms.txt` live under `docs/` — product docs (`architecture.md`, `CONFIG.md`, etc.); `archived_docs/` is local-only (gitignored).
 

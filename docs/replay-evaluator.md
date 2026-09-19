@@ -3,7 +3,9 @@
 The replay evaluator measures the existing lexical recall search against explicit,
 reviewed fixture truth. It is development tooling only: it does not register with
 Pi, change recall output or settings, call Jev, use credentials, scan session
-directories, or make network requests.
+directories, or make network requests. The separate
+[bounded Jev evaluator](jev-evaluator.md) consumes the same strict fixtures after
+this lexical baseline; it remains evaluation-only.
 
 ## Run it
 

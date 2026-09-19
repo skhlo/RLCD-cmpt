@@ -46,6 +46,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "replay:lexical": "tsup --silent && node dist/replay-evaluator.js",
+    "replay:jev": "tsup --silent && node dist/jev-evaluator.js",
     "check": "pnpm typecheck && pnpm lint && pnpm fmt:check",
     "prepare": "node scripts/prepare.mjs",
     "fmt": "oxfmt .",
