@@ -5,6 +5,10 @@ the selected v1 scope, implementation contracts, evaluation gates, and correctio
 to the original alternatives below. It selects a smaller C: query-aware recall
 reranking without retention changes or birth-time grading.
 
+The [reviewed narrow C design](narrow-c-design.md) develops the shared interface,
+judgment reuse, result snapshots, lifecycle rules, and behavioral test plan. It is
+not implemented; its resource bounds and budgeting spike still need validation.
+
 The original six artifacts were preserved in the first fork-specific commit; the
 refined proposal follows separately. No Jev integration is implemented by these
 documentation commits, and no installed settings have changed.
