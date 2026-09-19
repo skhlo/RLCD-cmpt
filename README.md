@@ -1,8 +1,9 @@
 # RLCD-cmpt
 
 A design-stage fork of [pi-blackhole](https://github.com/k0valik/pi-blackhole),
-exploring Jev's RLCD-trained judgments for session-memory retrieval. Runtime code
-is still upstream `v0.5.5`; the Jev integration is not implemented or installed.
+exploring Jev's RLCD-trained judgments for session-memory retrieval. Runtime
+behavior remains upstream `v0.5.5`, with a type-only Pi peer-floor compatibility
+correction. The Jev integration is not implemented or installed.
 
 Start with the [refined retrieval-first proposal](work_docs/proposals/retrieval-first-final.md)
 and the [original proposals and runnable HTML prototypes](work_docs/proposals/README.md).
