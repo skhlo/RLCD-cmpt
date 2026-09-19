@@ -1,0 +1,30 @@
+{"type":"session","id":"public-synthetic-v1-tuning","schemaVersion":1,"fixtureRevision":"public-synthetic-v1","partition":"tuning"}
+{"type":"message","id":"t01","message":{"role":"assistant","content":[{"type":"text","text":"Decision: use a SQLite checkpoint cache because startup must remain offline and require no service credentials."}]}}
+{"type":"message","id":"t02","message":{"role":"user","content":"SQLite was mentioned for an unrelated analytics prototype, without a checkpoint decision."}}
+{"type":"message","id":"t03","message":{"role":"assistant","content":[{"type":"text","text":"Correction: telemetry uses port 4318 for HTTP; the earlier 4317 value was the gRPC default and does not apply."}]}}
+{"type":"message","id":"t04","message":{"role":"user","content":"The old telemetry note still says port 4317 and asks whether it might work."}}
+{"type":"message","id":"t05","message":{"role":"bashExecution","command":"pnpm snapshots:regenerate -- --frozen","output":"regenerated 12 snapshots","exitCode":0}}
+{"type":"message","id":"t06","message":{"role":"assistant","content":[{"type":"text","text":"A frozen snapshot can document output, but this line does not contain the regeneration command."}]}}
+{"type":"message","id":"t07","message":{"role":"toolResult","toolName":"migrate","isError":true,"content":[{"type":"text","text":"ERROR migration checksum mismatch: expected 8f12, received 9a44"}]}}
+{"type":"message","id":"t08","message":{"role":"user","content":"We should write a migration guide that explains how checksums are produced."}}
+{"type":"message","id":"t09","message":{"role":"assistant","content":[{"type":"text","text":"Decision: retain the audit log as append-only JSONL so interrupted writes leave earlier records readable."}]}}
+{"type":"message","id":"t10","message":{"role":"user","content":"The audit dashboard can export JSON, but this was not a storage-format decision."}}
+{"type":"message","id":"t11","message":{"role":"assistant","content":[{"type":"text","text":"Superseding correction: the retry limit is three attempts, replacing the earlier proposal of five."}]}}
+{"type":"message","id":"t12","message":{"role":"assistant","content":[{"type":"text","text":"The five-attempt retry proposal is obsolete and remains only as historical context."}]}}
+{"type":"message","id":"t13","message":{"role":"bashExecution","command":"pnpm vitest run tests/parser.test.ts","output":"1 file passed","exitCode":0}}
+{"type":"message","id":"t14","message":{"role":"user","content":"Parser tests should be targeted before the whole suite, but no command is given here."}}
+{"type":"message","id":"t15","message":{"role":"toolResult","toolName":"serve","isError":true,"content":[{"type":"text","text":"EADDRINUSE: address already in use 127.0.0.1:4567 while starting preview server"}]}}
+{"type":"message","id":"t16","message":{"role":"assistant","content":[{"type":"text","text":"The preview server documentation lists port 4567 as its normal local address."}]}}
+{"type":"message","id":"t17","message":{"role":"assistant","content":[{"type":"text","text":"Decision: avoid Redis for replay state because the evaluator must work offline without credentials."}]}}
+{"type":"message","id":"t18","message":{"role":"user","content":"Redis credentials are available in production, but production is outside this evaluator."}}
+{"type":"message","id":"t19","message":{"role":"assistant","content":[{"type":"text","text":"Correction: the readiness endpoint is /readyz; /healthz remains the liveness endpoint."}]}}
+{"type":"message","id":"t20","message":{"role":"user","content":"The healthz endpoint returned success during a liveness check."}}
+{"type":"message","id":"t21","message":{"role":"user","content":"The ownership audit asks which keychain owns the shared deploy token marker, but the shared deploy token marker has no recorded keychain owner."}}
+{"type":"message","id":"t22","message":{"role":"user","content":"The release checklist asks which keychain owns the shared deploy token marker, but the shared deploy token marker still has no assigned keychain."}}
+{"type":"message","id":"t23","message":{"role":"user","content":"The unresolved ticket asks which keychain owns the shared deploy token marker; it repeats the shared deploy token marker but names no keychain."}}
+{"type":"message","id":"t24","message":{"role":"user","content":"The review agenda asks which keychain owns the shared deploy token marker, while the shared deploy token marker owner remains undecided."}}
+{"type":"message","id":"t25","message":{"role":"user","content":"The migration note asks which keychain owns the shared deploy token marker, but says the shared deploy token marker keychain is unknown."}}
+{"type":"message","id":"t26","message":{"role":"user","content":"After the ownership review completed, the release keychain was recorded as the keychain that owns the shared deploy token marker."}}
+{"type":"message","id":"t27","message":{"role":"assistant","content":[{"type":"text","text":"We selected a disk queue because it survives process restarts."}]}}
+{"type":"message","id":"t28","message":{"role":"user","content":"The quartz migration checklist has no assigned owner yet."}}
+{"type":"message","id":"t29","message":{"role":"assistant","content":[{"type":"text","text":"Lunar database planning is a fictional distractor and records no failure."}]}}

@@ -3,12 +3,32 @@
 A design-stage fork of [pi-blackhole](https://github.com/k0valik/pi-blackhole),
 exploring Jev's RLCD-trained judgments for session-memory retrieval. Runtime
 behavior remains upstream `v0.5.5`, with a type-only Pi peer-floor compatibility
-correction. The Jev integration is not implemented or installed.
+correction. A deterministic offline lexical replay evaluator is available; the
+Jev integration and runtime reranking are not implemented or installed.
 
 Start with the [refined retrieval-first proposal](work_docs/proposals/retrieval-first-final.md)
 and the [original proposals and runnable HTML prototypes](work_docs/proposals/README.md).
 The upstream documentation below describes the existing Blackhole runtime, not
 completed RLCD-cmpt features. The inherited package name remains `pi-blackhole`.
+
+## Offline lexical replay evaluator
+
+The credential-free evaluator runs the unchanged lexical recall planner, loader,
+and search over explicit synthetic fixtures. It reports candidate coverage,
+answer@5, mean reciprocal rank, candidate misses, rank misses, invalid truth, and
+no-answer behavior without changing Pi runtime behavior. The committed synthetic
+reports exercise evaluator mechanics only; they are not retrieval-quality claims.
+
+```sh
+pnpm --silent replay:lexical -- \
+  --corpus fixtures/replay/public-v1/tuning/corpus.jsonl \
+  --queries fixtures/replay/public-v1/tuning/queries.json \
+  --truth fixtures/replay/public-v1/tuning/truth.json \
+  --partition tuning
+```
+
+See [the evaluator documentation](docs/replay-evaluator.md) for fixture schemas,
+partition isolation, frozen labeling rules, and reproducible manifests.
 
 ## Upstream pi-blackhole
 
@@ -304,6 +324,7 @@ rm -rf ~/.pi/agent/pi-blackhole
 | **[`docs/OLD_CONFIG.md`](docs/OLD_CONFIG.md)**               | Reference only    | The legacy pi-vcc / pi-observational-memory config surface. Kept for historical context.  |
 | **[`example-config.json`](example-config.json)**             | You               | Annotated example config with comments.                                                   |
 | **[`docs/APPEND_COMPACTION.md`](docs/APPEND_COMPACTION.md)** | You, if curious   | Rules for `compactionSummaryMode: "append"`.                                              |
+| **[`docs/replay-evaluator.md`](docs/replay-evaluator.md)**   | Contributors      | Offline lexical replay fixtures, truth rules, metrics, and reproducible manifests.        |
 
 > **Note:** All docs except `README.md`, `CHANGELOG.md` (package root, read by `/blackhole changelog`), and `llms.txt` live under `docs/` — product docs (`architecture.md`, `CONFIG.md`, etc.); `archived_docs/` is local-only (gitignored).
 

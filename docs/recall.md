@@ -84,6 +84,14 @@ Stopwords removed from query terms before scoring. Each term is classified indiv
 
 `page:N` (1-based, default 5 results per page). Expand entries merged before pagination for consistent counts. Footer includes scope hint.
 
+## Offline lexical baseline
+
+The development-only [replay evaluator](replay-evaluator.md) runs this same query
+planner, session loader, and lexical search against explicit synthetic fixtures.
+It measures candidate coverage and lexical rank without changing either recall
+surface. Its synthetic metrics verify evaluator mechanics rather than retrieval
+quality. It performs no Jev call or runtime reranking.
+
 ## OM coupling
 
 When expanding session entries (`#N`), the tool automatically looks up related observations and reflections from the session ledger. Defined in [[src/om/reverse-recall.ts]].

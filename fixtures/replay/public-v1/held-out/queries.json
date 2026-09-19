@@ -1,0 +1,47 @@
+{
+  "schemaVersion": 1,
+  "fixtureRevision": "public-synthetic-v1",
+  "partition": "held-out",
+  "queries": [
+    {
+      "id": "hq01",
+      "text": "WAL local database concurrency reason",
+      "category": "decision-reason"
+    },
+    {
+      "id": "hq02",
+      "text": "trace retention fourteen thirty correction",
+      "category": "correction"
+    },
+    { "id": "hq03", "text": "shasum archive hashes verification command", "category": "command" },
+    {
+      "id": "hq04",
+      "text": "certificate verify failed internal mirror error",
+      "category": "error"
+    },
+    { "id": "hq05", "text": "NDJSON replay crash recovery reason", "category": "decision-reason" },
+    { "id": "hq06", "text": "eu-west superseding us-east deployment", "category": "supersession" },
+    { "id": "hq07", "text": "uv pytest API smoke command", "category": "command" },
+    { "id": "hq08", "text": "ENOSPC build cache exact error", "category": "error" },
+    {
+      "id": "hq09",
+      "text": "reject WebSockets proxy buffering reason",
+      "category": "decision-reason"
+    },
+    { "id": "hq10", "text": "dry-run apply preview correction", "category": "correction" },
+    {
+      "id": "hq11",
+      "text": "which environment owns the shared feature omega marker",
+      "category": "term-overlap-distractor"
+    },
+    {
+      "id": "hq12",
+      "text": "reason resilient checkpoint service",
+      "category": "lexical-candidate-miss"
+    },
+    { "id": "hq13", "text": "cobalt rotation owner", "category": "no-answer" },
+    { "id": "hq14", "text": "ultraviolet marzipan revocation", "category": "no-answer" },
+    { "id": "hq15", "text": "solar index exception error", "category": "no-answer" },
+    { "id": "hq16", "text": "tungsten narwhal supplier", "category": "no-answer" }
+  ]
+}

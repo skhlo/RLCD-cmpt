@@ -249,9 +249,16 @@ const countMatches = (hay: string, compiled: readonly SearchTermPlan[]): number 
 };
 
 // ── BM25+ scoring ──
-const BM25_K = 1.2;
-const BM25_B = 0.75;
-const BM25_DELTA = 0.5; // BM25+ lower-bound floor for matched terms
+/** Ranking constants owned by lexical search and reused verbatim in replay manifests. */
+export const SEARCH_RANKING_CONFIGURATION = Object.freeze({
+  algorithm: "bm25-plus",
+  bm25K1: 1.2,
+  bm25B: 0.75,
+  bm25Delta: 0.5,
+  relativeFloor: 0.2,
+  relativeFloorMinimumTermCount: 2,
+  candidateCap: 50,
+} as const);
 
 /** Count occurrences of a regex pattern in text. */
 const termFreq = (text: string, pattern: RegExp): number => {
@@ -297,8 +304,13 @@ const bm25Score = (doc: string, compiled: readonly SearchTermPlan[], ctx: BM25Co
     const idf = Math.log((ctx.n - docFreq + 0.5) / (docFreq + 0.5) + 1);
     // TF saturation with length normalization + BM25+ delta floor
     const tfNorm =
-      (tf * (BM25_K + 1)) / (tf + BM25_K * (1 - BM25_B + (BM25_B * dl) / Math.max(ctx.avgDl, 1)));
-    score += idf * (tfNorm + BM25_DELTA);
+      (tf * (SEARCH_RANKING_CONFIGURATION.bm25K1 + 1)) /
+      (tf +
+        SEARCH_RANKING_CONFIGURATION.bm25K1 *
+          (1 -
+            SEARCH_RANKING_CONFIGURATION.bm25B +
+            (SEARCH_RANKING_CONFIGURATION.bm25B * dl) / Math.max(ctx.avgDl, 1)));
+    score += idf * (tfNorm + SEARCH_RANKING_CONFIGURATION.bm25Delta);
   }
 
   return score;
@@ -503,8 +515,11 @@ export interface SearchTuning {
   cap?: number;
 }
 
-const BM25_RELATIVE_FLOOR = 0.2;
-const SEARCH_RESULT_CAP = 50;
+/** Frozen lexical defaults derived from the ranking owner's configuration. */
+export const DEFAULT_SEARCH_TUNING = Object.freeze({
+  relativeFloor: SEARCH_RANKING_CONFIGURATION.relativeFloor,
+  cap: SEARCH_RANKING_CONFIGURATION.candidateCap,
+});
 
 const applyRelativeFloor = (
   scored: Array<{ hit: SearchHit; score: number }>,
@@ -534,8 +549,8 @@ export const searchEntriesDetailedWithPlan = (
 ): SearchResult => {
   if (!plan) return { hits: entries, totalBeforeCap: entries.length, truncated: false };
 
-  const relativeFloor = tuning?.relativeFloor ?? BM25_RELATIVE_FLOOR;
-  const cap = tuning?.cap ?? SEARCH_RESULT_CAP;
+  const relativeFloor = tuning?.relativeFloor ?? DEFAULT_SEARCH_TUNING.relativeFloor;
+  const cap = tuning?.cap ?? DEFAULT_SEARCH_TUNING.cap;
   const compiled = plan.terms;
   const snipRe = snippetRegex(compiled);
 
@@ -573,7 +588,10 @@ export const searchEntriesDetailedWithPlan = (
   // Sort by BM25 score desc (term coverage flows through matchCount + score)
   scored.sort((a, b) => b.score - a.score);
   const effectiveTermCount = new Set(compiled.map((c) => c.term.toLowerCase())).size;
-  const floored = effectiveTermCount >= 2 ? applyRelativeFloor(scored, relativeFloor) : scored;
+  const floored =
+    effectiveTermCount >= SEARCH_RANKING_CONFIGURATION.relativeFloorMinimumTermCount
+      ? applyRelativeFloor(scored, relativeFloor)
+      : scored;
   return capHits(
     floored.map((s) => s.hit),
     cap,

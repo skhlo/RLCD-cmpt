@@ -1,0 +1,30 @@
+{"type":"session","id":"public-synthetic-v1-held-out","schemaVersion":1,"fixtureRevision":"public-synthetic-v1","partition":"held-out"}
+{"type":"message","id":"h01","message":{"role":"assistant","content":[{"type":"text","text":"Decision: enable WAL mode for the local database because readers must continue while one writer commits."}]}}
+{"type":"message","id":"h02","message":{"role":"user","content":"WAL appears in a database glossary without a local concurrency decision."}}
+{"type":"message","id":"h03","message":{"role":"assistant","content":[{"type":"text","text":"Correction: retain exported traces for fourteen days, not the earlier thirty-day suggestion."}]}}
+{"type":"message","id":"h04","message":{"role":"user","content":"The obsolete retention worksheet still shows thirty days."}}
+{"type":"message","id":"h05","message":{"role":"bashExecution","command":"shasum -a 256 -c fixtures/SHA256SUMS","output":"all archive hashes OK","exitCode":0}}
+{"type":"message","id":"h06","message":{"role":"assistant","content":[{"type":"text","text":"Archive hash verification is required, but this reminder omits the command."}]}}
+{"type":"message","id":"h07","message":{"role":"toolResult","toolName":"download","isError":true,"content":[{"type":"text","text":"certificate verify failed: unable to get local issuer certificate for internal mirror"}]}}
+{"type":"message","id":"h08","message":{"role":"user","content":"The internal mirror certificate renewal is scheduled for next quarter."}}
+{"type":"message","id":"h09","message":{"role":"assistant","content":[{"type":"text","text":"Decision: write replay receipts as NDJSON because complete lines survive a crash and can be scanned incrementally."}]}}
+{"type":"message","id":"h10","message":{"role":"user","content":"NDJSON is also used by an unrelated metrics export."}}
+{"type":"message","id":"h11","message":{"role":"assistant","content":[{"type":"text","text":"Superseding decision: deploy to eu-west, replacing the earlier us-east target."}]}}
+{"type":"message","id":"h12","message":{"role":"assistant","content":[{"type":"text","text":"The us-east deployment target is obsolete and should not guide the release."}]}}
+{"type":"message","id":"h13","message":{"role":"bashExecution","command":"uv run pytest tests/api/test_smoke.py","output":"4 passed","exitCode":0}}
+{"type":"message","id":"h14","message":{"role":"user","content":"Run the API smoke tests before release; this reminder has no exact command."}}
+{"type":"message","id":"h15","message":{"role":"toolResult","toolName":"build","isError":true,"content":[{"type":"text","text":"ENOSPC: no space left on device while writing build cache"}]}}
+{"type":"message","id":"h16","message":{"role":"assistant","content":[{"type":"text","text":"The build cache is stored on the local device."}]}}
+{"type":"message","id":"h17","message":{"role":"assistant","content":[{"type":"text","text":"Decision: reject WebSockets for this path because the proxy buffers upgraded connections unpredictably."}]}}
+{"type":"message","id":"h18","message":{"role":"user","content":"WebSockets remain suitable for a different direct-connect dashboard."}}
+{"type":"message","id":"h19","message":{"role":"assistant","content":[{"type":"text","text":"Correction: use the dry-run flag for previews and the apply flag only after approval."}]}}
+{"type":"message","id":"h20","message":{"role":"user","content":"An old example applied changes while describing a preview."}}
+{"type":"message","id":"h21","message":{"role":"user","content":"The assignment audit asks which environment owns the shared feature omega marker, but the shared feature omega marker has no recorded environment."}}
+{"type":"message","id":"h22","message":{"role":"user","content":"The rollout checklist asks which environment owns the shared feature omega marker, but the shared feature omega marker environment remains unassigned."}}
+{"type":"message","id":"h23","message":{"role":"user","content":"The unresolved ticket asks which environment owns the shared feature omega marker; it repeats the shared feature omega marker but names no environment."}}
+{"type":"message","id":"h24","message":{"role":"user","content":"The review agenda asks which environment owns the shared feature omega marker, while the shared feature omega marker destination remains undecided."}}
+{"type":"message","id":"h25","message":{"role":"user","content":"The migration note asks which environment owns the shared feature omega marker, but says the shared feature omega marker environment is unknown."}}
+{"type":"message","id":"h26","message":{"role":"user","content":"After the assignment review completed, the canary environment was recorded as the environment that owns the shared feature omega marker."}}
+{"type":"message","id":"h27","message":{"role":"assistant","content":[{"type":"text","text":"We chose periodic file snapshots because they permit recovery without a running coordinator."}]}}
+{"type":"message","id":"h28","message":{"role":"user","content":"The cobalt rotation checklist mentions ownership but does not assign an owner."}}
+{"type":"message","id":"h29","message":{"role":"assistant","content":[{"type":"text","text":"Solar index planning is fictional overlap text and records no exception."}]}}
