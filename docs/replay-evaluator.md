@@ -31,8 +31,10 @@ fixture metadata, which the normal session loader ignores as a non-message entry
 
 Every subsequent nonblank record must be a JSON object with `type: "message"`, a
 non-empty string `id`, and an object-valued `message`. The fixture reader rejects
-malformed JSONL and unsupported record shapes before the production-tolerant
-session loader can skip them.
+malformed JSONL and unsupported record shapes, then requires the shared session
+loader to return every validated message ID in the same order. A nested payload
+that the production-tolerant loader cannot render therefore rejects the fixture
+instead of silently omitting evidence from the metrics.
 
 The command never discovers other files. Corpus, query, and truth revision and
 partition metadata must agree. Queries and truth are versioned JSON documents:

@@ -165,6 +165,29 @@ describe("lexical replay CLI", () => {
     });
   });
 
+  it("rejects a nested malformed message instead of evaluating the intact labeled message", () => {
+    withCliFixture((fixture) => {
+      appendFileSync(
+        fixture.corpusPath,
+        `${JSON.stringify({
+          type: "message",
+          id: "malformed-entry",
+          message: { role: "assistant", content: [null] },
+        })}\n`,
+      );
+
+      const result = runCli(fixtureArgs(fixture));
+
+      expect({ status: result.status, stdout: result.stdout, stderr: result.stderr }).toMatchObject(
+        {
+          status: 1,
+          stdout: "",
+          stderr: expect.stringContaining("did not load every corpus message in order"),
+        },
+      );
+    });
+  });
+
   it("emits malformed no-answer evidence for review and exits with status 2", () => {
     withCliFixture(
       (fixture) => {

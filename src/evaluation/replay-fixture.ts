@@ -121,7 +121,11 @@ const readMetadata = (
 const readCorpusMetadata = (
   path: string,
   expectedPartition: ReplayPartition,
-): { revision: string; partition: ReplayPartition } => {
+): {
+  revision: string;
+  partition: ReplayPartition;
+  expectedEntryIds: readonly string[];
+} => {
   const lines = readFileSync(path, "utf8").split("\n");
   const records: unknown[] = [];
   for (const line of lines) {
@@ -144,6 +148,7 @@ const readCorpusMetadata = (
     throw new ReplayFixtureError(`First record in ${path} must be fixture session metadata`);
   }
 
+  const expectedEntryIds: string[] = [];
   for (let index = 1; index < records.length; index++) {
     const record = records[index];
     const recordNumber = index + 1;
@@ -162,9 +167,10 @@ const readCorpusMetadata = (
         `message in corpus record ${recordNumber} in ${path} must be an object`,
       );
     }
+    expectedEntryIds.push(record.id);
   }
 
-  return readMetadata(metadata, path, expectedPartition);
+  return { ...readMetadata(metadata, path, expectedPartition), expectedEntryIds };
 };
 
 const readQueries = (document: Record<string, unknown>, path: string): readonly ReplayQuery[] => {
@@ -299,6 +305,15 @@ export const readReplayFixture = (
       throw new ReplayFixtureError(`Duplicate corpus entry id ${JSON.stringify(entryId)}`);
     }
     corpusIds.add(entryId);
+  }
+
+  const loadedEveryMessageInOrder =
+    loaded.entryIds.length === corpusMetadata.expectedEntryIds.length &&
+    loaded.entryIds.every((entryId, index) => entryId === corpusMetadata.expectedEntryIds[index]);
+  if (!loadedEveryMessageInOrder) {
+    throw new ReplayFixtureError(
+      `Shared session loader did not load every corpus message in order from ${paths.corpus}`,
+    );
   }
 
   if (!Array.isArray(truthDocument.labels)) {
