@@ -227,8 +227,37 @@ const isNullableFiniteNonnegative = (value: unknown): value is number | null =>
   value === null || isFiniteNonnegative(value);
 const isStringArray = (value: unknown): value is readonly string[] =>
   Array.isArray(value) && value.every((item) => typeof item === "string");
+const isUniqueStringArray = (value: unknown): value is readonly string[] =>
+  isStringArray(value) && new Set(value).size === value.length;
 const sameJson = (left: unknown, right: unknown): boolean =>
   JSON.stringify(left) === JSON.stringify(right);
+
+const stableRerankedIds = (
+  lexicalIds: readonly string[],
+  scores: JevReplayCaseReport["semantic"]["scores"],
+): readonly string[] => {
+  const scoresById = new Map(scores.map(({ entryId, noul }) => [entryId, noul]));
+  return lexicalIds
+    .map((entryId, lexicalPosition) => ({ entryId, lexicalPosition }))
+    .sort((left, right) => {
+      const leftScore = scoresById.get(left.entryId);
+      const rightScore = scoresById.get(right.entryId);
+      if (leftScore === undefined || rightScore === undefined) {
+        return left.lexicalPosition - right.lexicalPosition;
+      }
+      return rightScore - leftScore || left.lexicalPosition - right.lexicalPosition;
+    })
+    .map(({ entryId }) => entryId);
+};
+
+const rankOfKnownAnswer = (
+  candidateIds: readonly string[],
+  knownAnswerIds: readonly string[],
+): number | null => {
+  const knownAnswers = new Set(knownAnswerIds);
+  const index = candidateIds.findIndex((entryId) => knownAnswers.has(entryId));
+  return index === -1 ? null : index + 1;
+};
 
 const isLexicalCaseArtifact = (
   value: unknown,
@@ -242,7 +271,7 @@ const isLexicalCaseArtifact = (
     return false;
   }
   if (value.outcome === "no-answer-empty" || value.outcome === "no-answer-candidates") {
-    return isStringArray(value.candidateEntryIds);
+    return isUniqueStringArray(value.candidateEntryIds);
   }
   if (
     value.outcome !== "answer-at-5" &&
@@ -252,8 +281,8 @@ const isLexicalCaseArtifact = (
     return false;
   }
   return (
-    isStringArray(value.knownAnswerEntryIds) &&
-    isStringArray(value.candidateEntryIds) &&
+    isUniqueStringArray(value.knownAnswerEntryIds) &&
+    isUniqueStringArray(value.candidateEntryIds) &&
     (value.bestKnownAnswerRank === null ||
       (isNonnegativeInteger(value.bestKnownAnswerRank) && value.bestKnownAnswerRank > 0)) &&
     isFiniteNonnegative(value.reciprocalRank) &&
@@ -394,13 +423,13 @@ const isReplayCaseArtifact = (value: unknown): value is JevReplayCaseReport => {
     typeof value.category !== "string" ||
     !isRecord(value.lexical) ||
     typeof value.lexical.outcome !== "string" ||
-    !isStringArray(value.lexical.candidateEntryIds) ||
+    !isUniqueStringArray(value.lexical.candidateEntryIds) ||
     !isNullableFiniteNonnegative(value.lexical.bestKnownAnswerRank) ||
     (value.lexical.candidateMissReason !== null &&
       typeof value.lexical.candidateMissReason !== "string") ||
     !isRecord(value.semantic) ||
     (value.semantic.result !== "reranked" && value.semantic.result !== "lexical-fallback") ||
-    !isStringArray(value.semantic.candidateEntryIds) ||
+    !isUniqueStringArray(value.semantic.candidateEntryIds) ||
     !isNullableFiniteNonnegative(value.semantic.bestKnownAnswerRank) ||
     !Array.isArray(value.semantic.scores) ||
     !value.semantic.scores.every(
@@ -469,6 +498,7 @@ const isReplayCaseArtifact = (value: unknown): value is JevReplayCaseReport => {
   return (
     value.semantic.fallbackReason === null &&
     dispatched &&
+    new Set(scoreIds).size === scoreIds.length &&
     sameJson(semanticIds, lexicalIds) &&
     sameJson(scoreIds, lexicalIds)
   );
@@ -558,6 +588,25 @@ const readValidatedReplayReport = (
     })
   ) {
     throw new ReplayFixtureError(`${phase} evidence cases do not match its lexical baseline`);
+  }
+  for (const item of value.cases) {
+    if (item.semantic.result !== "reranked") continue;
+    const lexical = lexicalById.get(item.queryId);
+    if (!lexical || !("candidateEntryIds" in lexical)) {
+      throw new ReplayFixtureError(`${phase} evidence cases do not match its lexical baseline`);
+    }
+    const expectedOrder = stableRerankedIds(lexical.candidateEntryIds, item.semantic.scores);
+    if (!sameJson(item.semantic.candidateEntryIds, expectedOrder)) {
+      throw new ReplayFixtureError(
+        `${phase} evidence query ${JSON.stringify(item.queryId)} reranked order is inconsistent with its complete scores and lexical order`,
+      );
+    }
+    const knownAnswerIds = "knownAnswerEntryIds" in lexical ? lexical.knownAnswerEntryIds : [];
+    if (item.semantic.bestKnownAnswerRank !== rankOfKnownAnswer(expectedOrder, knownAnswerIds)) {
+      throw new ReplayFixtureError(
+        `${phase} evidence query ${JSON.stringify(item.queryId)} best-known-answer rank is inconsistent with its reranked order and frozen answer IDs`,
+      );
+    }
   }
 
   const operations = deriveJevReplayOperations(value.cases);

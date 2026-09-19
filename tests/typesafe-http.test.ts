@@ -3,6 +3,7 @@ import {
   TYPESAFE_SYSTEM_ONE_ENDPOINT,
   TypeSafeHttpError,
   createTypeSafeHttpTransport,
+  jevTransportEvidenceSource,
 } from "../src/evaluation/typesafe-http.js";
 
 const request = (
@@ -54,6 +55,26 @@ describe("native TypeSafe HTTP adapter", () => {
 
   it("labels the standard non-injected adapter as native API evidence", () => {
     expect(createTypeSafeHttpTransport().evidenceSource).toBe("native-api");
+  });
+
+  it("uses a post-import global fetch replacement but classifies its evidence as scripted", async () => {
+    const originalFetch = globalThis.fetch;
+    let calls = 0;
+    globalThis.fetch = async () => {
+      calls++;
+      return new Response("{}", { status: 200 });
+    };
+    try {
+      const transport = createTypeSafeHttpTransport();
+
+      await expect(transport.send(request())).resolves.toEqual({ status: 200, body: "{}" });
+      expect({ calls, source: jevTransportEvidenceSource(transport) }).toEqual({
+        calls: 1,
+        source: "scripted",
+      });
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
   });
 
   it("returns a bounded HTTP error response once so usage can be projected", async () => {

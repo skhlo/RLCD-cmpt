@@ -155,9 +155,14 @@ ten native API responses with valid provider-reported usage for every dispatched
 request and demonstrate that the frozen estimator did not underestimate reported
 input usage. A synthetic or scripted calibration never qualifies. Supplying a
 fetch implementation or CLI transport factory always marks that adapter as
-scripted, even if the injected object labels itself native. This is a guard
-against accidental evidence misclassification, not an attestation mechanism or
-a claim of protection from arbitrary local program changes. A live held-out
+scripted, even if the injected object labels itself native. The native adapter
+captures the process-global fetch identity when its module initializes. A later
+global replacement is used for dispatch, so test mocks are not bypassed with an
+unexpected real request, but its evidence is conservatively scripted. Code that
+replaces fetch before module initialization is inside the process/startup trust
+boundary and cannot be distinguished here. This is a guard against accidental
+evidence misclassification, not cryptographic attestation, a source-string
+heuristic, or protection from arbitrary local program changes. A live held-out
 command additionally requires `--calibration <qualified-calibration-report>`
 from the same frozen plan; the CLI validates the complete report, recomputes its
 aggregates and gates, and binds its plan, implementation, and input before

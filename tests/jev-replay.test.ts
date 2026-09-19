@@ -4,9 +4,13 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
   JEV_EVALUATION_THRESHOLDS,
+  JEV_PRICE,
   createJevEvaluationPlan,
+  deriveJevReplayGates,
   evaluateJevReplay,
+  type JevReplayReport,
 } from "../src/evaluation/jev-replay.js";
+import { evaluateLexicalReplay } from "../src/evaluation/lexical-replay.js";
 import {
   readReplayFixture,
   type ReplayFixture,
@@ -15,6 +19,7 @@ import {
 } from "../src/evaluation/replay-fixture.js";
 import {
   TypeSafeHttpError,
+  createTypeSafeHttpTransport,
   type JevTransport,
   type JevTransportRequest,
   type JevTransportResponse,
@@ -116,6 +121,7 @@ const isRecord = (value: unknown): value is Record<string, unknown> =>
 const scriptedResponse = (
   request: JevTransportRequest,
   invalidUsage = false,
+  inputTokens = 320,
 ): JevTransportResponse => {
   const parsed: unknown = JSON.parse(request.body);
   if (!isRecord(parsed) || !isRecord(parsed.state) || !Array.isArray(parsed.state.candidates)) {
@@ -138,7 +144,7 @@ const scriptedResponse = (
       answers,
       usage: invalidUsage
         ? { input_tokens: "unknown", output_tokens: 2 }
-        : { input_tokens: 320, output_tokens: 20 },
+        : { input_tokens: inputTokens, output_tokens: 20 },
     }),
   };
 };
@@ -238,6 +244,101 @@ describe("Jev evaluation plan", () => {
   });
 });
 
+describe("Jev evaluation gate policy", () => {
+  it("accepts explicit hypothetical positive calibration inputs", () => {
+    const tuning = writeFixture("tuning", "hypothetical-policy", undefined, 10);
+    const heldOut = writeFixture("held-out", "hypothetical-policy");
+    try {
+      const plan = createJevEvaluationPlan({
+        tuningFixture: tuning.fixture,
+        heldOutInputSha256: heldOut.fixture.digests,
+        inputKind: "private-reviewed",
+        implementation,
+      });
+      const lexicalBaseline = evaluateLexicalReplay(tuning.fixture, implementation);
+      // Policy literals only: no transport ran, and these are not empirical quality or budget evidence.
+      const evidence: JevReplayReport["evidence"] = {
+        source: "native-api",
+        approvalEvidenceSha256: "a".repeat(64),
+        calibrationEvidenceSha256: null,
+        localRawEvidenceRetentionDays: 7,
+        localRetentionExtensionReference: null,
+        nativeApiRequestsDispatched: true,
+        estimatorCalibrationAccepted: true,
+        price: JEV_PRICE,
+      };
+      const operations: JevReplayReport["operations"] = {
+        eligibleEvaluations: 11,
+        attemptedRequests: 11,
+        validJudgments: 11,
+        completeWithinDeadline: 11,
+        providerReportedUsageResponses: 11,
+        requestsWithUnknownUsage: 0,
+        providerReportedInputTokens: 110,
+        providerReportedOutputTokens: 0,
+        estimatedInputTokens: 220,
+        costs: {
+          providerReportedInputCostUsd: 0.00000462,
+          estimatedInputCostUsd: 0.00000924,
+          completeProviderReportedInputCostUsd: 0.00000462,
+          requestsWithUnknownCost: 0,
+        },
+        estimatorError: {
+          maximumUnderestimateRatio: 0,
+          meanActualMinusEstimatedTokens: -10,
+        },
+        latencyMs: {
+          p50: 100,
+          p95: 200,
+          maximum: 300,
+          cooperativeDeadlineOverruns: 0,
+        },
+        failures: [],
+      };
+      const comparison: JevReplayReport["comparison"] = {
+        candidateMisses: 0,
+        candidateMissDetails: [],
+        lexicalRankMisses: 10,
+        semanticRankMisses: 0,
+        lexicalAnswerAt5: 0,
+        semanticAnswerAt5: 1,
+        answerAt5NetImprovement: 1,
+        lexicalMeanReciprocalRank: 0.166667,
+        semanticMeanReciprocalRank: 1,
+        meanReciprocalRankDelta: 0.833333,
+        promotionsIntoTop5: 10,
+        rankRegressions: [],
+        firstPageRegressions: [],
+        disagreements: [],
+        noAnswerCases: 1,
+        noAnswerEligibleCases: 1,
+        noAnswerCompleteJudgments: 1,
+        noAnswerZeroCandidateCases: 0,
+        noAnswerHighSupport: [],
+        adversarialCases: 1,
+        adversarialEligibleCases: 1,
+        adversarialCompleteJudgments: 1,
+        adversarialZeroCandidateCases: 0,
+        adversarialHighSupport: [],
+      };
+
+      expect(
+        deriveJevReplayGates({
+          phase: "calibration",
+          plan,
+          lexicalBaseline,
+          evidence,
+          operations,
+          comparison,
+        }),
+      ).toEqual({ status: "PASS", readyForHeldOut: true, reasons: [] });
+    } finally {
+      rmSync(tuning.dir, { recursive: true });
+      rmSync(heldOut.dir, { recursive: true });
+    }
+  });
+});
+
 describe("bounded Jev replay", () => {
   it("dispatches one scripted request for each eligible case", async () => {
     const { calls } = await evaluateScriptedHeldOut();
@@ -294,6 +395,67 @@ describe("bounded Jev replay", () => {
     });
   });
 
+  it("does not treat a post-import global fetch mock as native calibration evidence", async () => {
+    const tuning = writeFixture("tuning", "global-fetch-provenance", undefined, 10);
+    const heldOut = writeFixture("held-out", "global-fetch-provenance");
+    const originalFetch = globalThis.fetch;
+    let calls = 0;
+    globalThis.fetch = async (_input, init) => {
+      calls++;
+      if (typeof init?.body !== "string") throw new Error("test fetch requires a string body");
+      const response = scriptedResponse(
+        {
+          body: init.body,
+          apiKey: "test-only-key",
+          timeoutMs: 1_000,
+          responseMaxUtf8Bytes: 64 * 1024,
+        },
+        false,
+        1,
+      );
+      return new Response(response.body, { status: response.status });
+    };
+    try {
+      const plan = createJevEvaluationPlan({
+        tuningFixture: tuning.fixture,
+        heldOutInputSha256: heldOut.fixture.digests,
+        inputKind: "private-reviewed",
+        implementation,
+      });
+      const report = await evaluateJevReplay(tuning.fixture, plan, {
+        phase: "calibration",
+        transport: createTypeSafeHttpTransport(),
+        apiKey: "test-only-key",
+        approval: {
+          evidenceSha256: "a".repeat(64),
+          transmissionApproved: true,
+          privateAccountTermsAccepted: true,
+          localRawEvidenceRetentionDays: 7,
+          localRetentionExtensionReference: null,
+        },
+        implementation,
+      });
+
+      expect({ calls, evidence: report.evidence, gates: report.gates }).toMatchObject({
+        calls: 11,
+        evidence: {
+          source: "scripted",
+          nativeApiRequestsDispatched: false,
+          estimatorCalibrationAccepted: false,
+        },
+        gates: {
+          status: "BLOCKED",
+          readyForHeldOut: false,
+          reasons: expect.arrayContaining(["scripted-transport-is-not-empirical-evidence"]),
+        },
+      });
+    } finally {
+      globalThis.fetch = originalFetch;
+      rmSync(tuning.dir, { recursive: true });
+      rmSync(heldOut.dir, { recursive: true });
+    }
+  });
+
   it("classifies a scripted replay as non-native evidence", async () => {
     const { report } = await evaluateScriptedHeldOut();
 
@@ -320,13 +482,41 @@ describe("bounded Jev replay", () => {
   it("accepts complete timely no-answer judgments as category evidence", async () => {
     const { report } = await evaluateScriptedHeldOut();
 
-    expect(report.gates.reasons).not.toContain("no-answer-judgment-evidence-incomplete");
+    expect({
+      cases: report.comparison.noAnswerCases,
+      eligible: report.comparison.noAnswerEligibleCases,
+      complete: report.comparison.noAnswerCompleteJudgments,
+      zeroCandidate: report.comparison.noAnswerZeroCandidateCases,
+      highSupport: report.comparison.noAnswerHighSupport,
+      blockers: report.gates.reasons.filter((reason) => reason.startsWith("no-answer-")),
+    }).toEqual({
+      cases: 1,
+      eligible: 1,
+      complete: 1,
+      zeroCandidate: 0,
+      highSupport: [],
+      blockers: [],
+    });
   });
 
   it("accepts complete timely adversarial judgments as category evidence", async () => {
     const { report } = await evaluateScriptedHeldOut();
 
-    expect(report.gates.reasons).not.toContain("adversarial-judgment-evidence-incomplete");
+    expect({
+      cases: report.comparison.adversarialCases,
+      eligible: report.comparison.adversarialEligibleCases,
+      complete: report.comparison.adversarialCompleteJudgments,
+      zeroCandidate: report.comparison.adversarialZeroCandidateCases,
+      highSupport: report.comparison.adversarialHighSupport,
+      blockers: report.gates.reasons.filter((reason) => reason.startsWith("adversarial-")),
+    }).toEqual({
+      cases: 1,
+      eligible: 1,
+      complete: 1,
+      zeroCandidate: 0,
+      highSupport: [],
+      blockers: [],
+    });
   });
 
   it("blocks no-answer model evidence when an eligible judgment falls back", async () => {

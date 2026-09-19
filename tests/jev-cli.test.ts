@@ -12,7 +12,16 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { runJevCli, type JevCliDependencies } from "../src/evaluation/jev-cli.js";
-import { createJevEvaluationPlan, evaluateJevReplay } from "../src/evaluation/jev-replay.js";
+import {
+  createJevEvaluationPlan,
+  deriveJevReplayComparison,
+  deriveJevReplayGates,
+  deriveJevReplayOperations,
+  evaluateJevReplay,
+  type JevEvaluationPlan,
+  type JevReplayCaseReport,
+  type JevReplayReport,
+} from "../src/evaluation/jev-replay.js";
 import { readReplayFixture } from "../src/evaluation/replay-fixture.js";
 
 const fixtureRoot = join(process.cwd(), "fixtures", "replay", "public-v1");
@@ -125,6 +134,135 @@ const throwingEnv = new Proxy<Record<string, string | undefined>>(
     },
   },
 );
+
+const scriptedHeldOutReport = async (): Promise<{
+  readonly plan: JevEvaluationPlan;
+  readonly report: JevReplayReport;
+}> => {
+  const tuning = readReplayFixture(
+    {
+      corpus: join(fixtureRoot, "tuning", "corpus.jsonl"),
+      queries: join(fixtureRoot, "tuning", "queries.json"),
+      truth: join(fixtureRoot, "tuning", "truth.json"),
+    },
+    "tuning",
+  );
+  const heldOut = readReplayFixture(
+    {
+      corpus: join(fixtureRoot, "held-out", "corpus.jsonl"),
+      queries: join(fixtureRoot, "held-out", "queries.json"),
+      truth: join(fixtureRoot, "held-out", "truth.json"),
+    },
+    "held-out",
+  );
+  const implementation = {
+    provenance: "executable-sha256" as const,
+    executableSha256: "0".repeat(64),
+  };
+  const plan = createJevEvaluationPlan({
+    tuningFixture: tuning,
+    heldOutInputSha256: heldOut.digests,
+    inputKind: "synthetic",
+    implementation,
+  });
+  const report = await evaluateJevReplay(heldOut, plan, {
+    phase: "held-out",
+    implementation,
+    apiKey: "scripted-key",
+    transport: {
+      evidenceSource: "scripted",
+      async send({ body }) {
+        const request: unknown = JSON.parse(body);
+        if (!isRecord(request) || !isRecord(request.questions)) {
+          throw new Error("scripted transport received a malformed request");
+        }
+        return {
+          status: 200,
+          body: JSON.stringify({
+            model: "jev-1.13.0",
+            answers: Object.fromEntries(
+              Object.keys(request.questions).map((key, index) => [
+                key,
+                { type: "noul", noul: index === 0 ? 0.99 : 0.1 },
+              ]),
+            ),
+            usage: { input_tokens: 100, output_tokens: 1 },
+          }),
+        };
+      },
+    },
+  });
+  return { plan, report };
+};
+
+const rebuildReport = (
+  plan: JevEvaluationPlan,
+  report: JevReplayReport,
+  cases: readonly JevReplayCaseReport[],
+): JevReplayReport => {
+  const operations = deriveJevReplayOperations(cases);
+  const comparison = deriveJevReplayComparison(report.lexicalBaseline, cases, plan.thresholds);
+  return {
+    ...report,
+    operations,
+    comparison,
+    cases,
+    gates: deriveJevReplayGates({
+      phase: "held-out",
+      plan,
+      lexicalBaseline: report.lexicalBaseline,
+      evidence: report.evidence,
+      operations,
+      comparison,
+    }),
+  };
+};
+
+const assessReport = async (
+  plan: JevEvaluationPlan,
+  report: JevReplayReport,
+): Promise<{ status: number; stdout: string; stderr: string }> => {
+  const dir = mkdtempSync(join(tmpdir(), "blackhole-jev-assess-"));
+  try {
+    const planPath = join(dir, "plan.json");
+    const reportPath = join(dir, "held-out.json");
+    const reviewPath = join(dir, "review.json");
+    writeFileSync(planPath, `${JSON.stringify(plan)}\n`);
+    const reportBody = `${JSON.stringify(report)}\n`;
+    writeFileSync(reportPath, reportBody);
+    const pendingIds = [
+      ...new Set([
+        ...report.comparison.disagreements.map(({ queryId }) => queryId),
+        ...report.comparison.rankRegressions.map(({ queryId }) => queryId),
+      ]),
+    ].sort();
+    writeFileSync(
+      reviewPath,
+      `${JSON.stringify({
+        schemaVersion: 1,
+        heldOutEvidenceSha256: createHash("sha256").update(reportBody).digest("hex"),
+        reviewedBy: "fixture-reviewer",
+        reviewedAt: "2026-09-19T00:00:00Z",
+        items: pendingIds.map((queryId) => ({
+          queryId,
+          judgment: "acceptable-change",
+          notes: "Synthetic fixture review for assessment mechanics only.",
+        })),
+      })}\n`,
+    );
+    return await invoke([
+      "assess",
+      "--plan",
+      planPath,
+      "--report",
+      reportPath,
+      "--review-evidence",
+      reviewPath,
+    ]);
+  } finally {
+    rmSync(dir, { recursive: true });
+  }
+};
 
 describe("Jev evaluator CLI", () => {
   it("prepares and freezes a deterministic blocked plan without reading credentials", async () => {
@@ -424,6 +562,57 @@ describe("Jev evaluator CLI", () => {
     } finally {
       rmSync(dir, { recursive: true });
     }
+  });
+
+  it("refuses a reranked order that violates complete scores and lexical stable ties", async () => {
+    const { plan, report } = await scriptedHeldOutReport();
+    const cases = report.cases.map((caseReport): JevReplayCaseReport => {
+      if (caseReport.queryId !== "hq11") return caseReport;
+      const candidateEntryIds = [...caseReport.semantic.candidateEntryIds];
+      const firstTie = candidateEntryIds.findIndex((entryId) => entryId === "h22");
+      const secondTie = candidateEntryIds.findIndex((entryId) => entryId === "h23");
+      if (firstTie === -1 || secondTie === -1) {
+        throw new Error("fixture must contain the stable-tie candidates");
+      }
+      [candidateEntryIds[firstTie], candidateEntryIds[secondTie]] = [
+        candidateEntryIds[secondTie],
+        candidateEntryIds[firstTie],
+      ];
+      return {
+        ...caseReport,
+        semantic: { ...caseReport.semantic, candidateEntryIds },
+      };
+    });
+    const result = await assessReport(plan, rebuildReport(plan, report, cases));
+
+    expect(result).toMatchObject({
+      status: 1,
+      stdout: "",
+      stderr: expect.stringContaining(
+        "reranked order is inconsistent with its complete scores and lexical order",
+      ),
+    });
+  });
+
+  it("refuses a best-known-answer rank inconsistent with the frozen answer IDs", async () => {
+    const { plan, report } = await scriptedHeldOutReport();
+    const cases = report.cases.map((caseReport): JevReplayCaseReport =>
+      caseReport.queryId === "hq01"
+        ? {
+            ...caseReport,
+            semantic: { ...caseReport.semantic, bestKnownAnswerRank: 2 },
+          }
+        : caseReport,
+    );
+    const result = await assessReport(plan, rebuildReport(plan, report, cases));
+
+    expect(result).toMatchObject({
+      status: 1,
+      stdout: "",
+      stderr: expect.stringContaining(
+        "best-known-answer rank is inconsistent with its reranked order",
+      ),
+    });
   });
 
   it("refuses held-out evidence from a different implementation", async () => {

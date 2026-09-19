@@ -21,6 +21,10 @@ export interface JevTransport {
   send(request: JevTransportRequest): Promise<JevTransportResponse>;
 }
 
+// Native provenance is a process/startup trust boundary, not attestation. A fetch
+// already replaced before this module initializes is indistinguishable from the
+// process-provided implementation; later replacement or explicit injection is scripted.
+const fetchAtModuleInitialization = globalThis.fetch;
 const nativeTransports = new WeakSet<JevTransport>();
 
 export const jevTransportEvidenceSource = (
@@ -131,9 +135,11 @@ const boundedBody = async (
 export const createTypeSafeHttpTransport = (
   dependencies: TypeSafeHttpDependencies = {},
 ): JevTransport => {
-  const fetchImpl = dependencies.fetchImpl ?? fetch;
+  const explicitlyInjected = dependencies.fetchImpl !== undefined;
+  const fetchImpl = dependencies.fetchImpl ?? globalThis.fetch;
+  const usesStartupFetch = !explicitlyInjected && fetchImpl === fetchAtModuleInitialization;
   const transport: JevTransport = {
-    evidenceSource: dependencies.fetchImpl ? "scripted" : "native-api",
+    evidenceSource: usesStartupFetch ? "native-api" : "scripted",
     async send(request): Promise<JevTransportResponse> {
       if (request.apiKey.length === 0) {
         throw new TypeSafeHttpError("credential", "TypeSafe API key is unavailable");
@@ -183,6 +189,6 @@ export const createTypeSafeHttpTransport = (
       }
     },
   };
-  if (!dependencies.fetchImpl) nativeTransports.add(transport);
+  if (usesStartupFetch) nativeTransports.add(transport);
   return transport;
 };
