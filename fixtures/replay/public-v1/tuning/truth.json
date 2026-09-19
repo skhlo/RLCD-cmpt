@@ -1,0 +1,83 @@
+{
+  "schemaVersion": 1,
+  "fixtureRevision": "public-synthetic-v1",
+  "partition": "tuning",
+  "labels": [
+    {
+      "queryId": "tq01",
+      "classification": "answerable",
+      "answerEntryIds": ["t01"],
+      "reviewed": true
+    },
+    {
+      "queryId": "tq02",
+      "classification": "answerable",
+      "answerEntryIds": ["t03"],
+      "reviewed": true
+    },
+    {
+      "queryId": "tq03",
+      "classification": "answerable",
+      "answerEntryIds": ["t05"],
+      "reviewed": true
+    },
+    {
+      "queryId": "tq04",
+      "classification": "answerable",
+      "answerEntryIds": ["t07"],
+      "reviewed": true
+    },
+    {
+      "queryId": "tq05",
+      "classification": "answerable",
+      "answerEntryIds": ["t09"],
+      "reviewed": true
+    },
+    {
+      "queryId": "tq06",
+      "classification": "answerable",
+      "answerEntryIds": ["t11"],
+      "reviewed": true
+    },
+    {
+      "queryId": "tq07",
+      "classification": "answerable",
+      "answerEntryIds": ["t13"],
+      "reviewed": true
+    },
+    {
+      "queryId": "tq08",
+      "classification": "answerable",
+      "answerEntryIds": ["t15"],
+      "reviewed": true
+    },
+    {
+      "queryId": "tq09",
+      "classification": "answerable",
+      "answerEntryIds": ["t17"],
+      "reviewed": true
+    },
+    {
+      "queryId": "tq10",
+      "classification": "answerable",
+      "answerEntryIds": ["t19"],
+      "reviewed": true
+    },
+    {
+      "queryId": "tq11",
+      "classification": "answerable",
+      "answerEntryIds": ["t26"],
+      "reviewed": true
+    },
+    {
+      "queryId": "tq12",
+      "classification": "answerable",
+      "answerEntryIds": ["t27"],
+      "reviewed": true
+    },
+    { "queryId": "tq13", "classification": "no-answer", "reviewed": true },
+    { "queryId": "tq14", "classification": "no-answer", "reviewed": true },
+    { "queryId": "tq15", "classification": "no-answer", "reviewed": true },
+    { "queryId": "tq16", "classification": "no-answer", "reviewed": true }
+  ]
+}

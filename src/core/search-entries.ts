@@ -503,8 +503,11 @@ export interface SearchTuning {
   cap?: number;
 }
 
-const BM25_RELATIVE_FLOOR = 0.2;
-const SEARCH_RESULT_CAP = 50;
+/** Frozen lexical defaults shared by runtime search and offline replay reports. */
+export const DEFAULT_SEARCH_TUNING = Object.freeze({
+  relativeFloor: 0.2,
+  cap: 50,
+});
 
 const applyRelativeFloor = (
   scored: Array<{ hit: SearchHit; score: number }>,
@@ -534,8 +537,8 @@ export const searchEntriesDetailedWithPlan = (
 ): SearchResult => {
   if (!plan) return { hits: entries, totalBeforeCap: entries.length, truncated: false };
 
-  const relativeFloor = tuning?.relativeFloor ?? BM25_RELATIVE_FLOOR;
-  const cap = tuning?.cap ?? SEARCH_RESULT_CAP;
+  const relativeFloor = tuning?.relativeFloor ?? DEFAULT_SEARCH_TUNING.relativeFloor;
+  const cap = tuning?.cap ?? DEFAULT_SEARCH_TUNING.cap;
   const compiled = plan.terms;
   const snipRe = snippetRegex(compiled);
 

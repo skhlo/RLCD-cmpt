@@ -1,0 +1,83 @@
+{
+  "schemaVersion": 1,
+  "fixtureRevision": "public-synthetic-v1",
+  "partition": "held-out",
+  "labels": [
+    {
+      "queryId": "hq01",
+      "classification": "answerable",
+      "answerEntryIds": ["h01"],
+      "reviewed": true
+    },
+    {
+      "queryId": "hq02",
+      "classification": "answerable",
+      "answerEntryIds": ["h03"],
+      "reviewed": true
+    },
+    {
+      "queryId": "hq03",
+      "classification": "answerable",
+      "answerEntryIds": ["h05"],
+      "reviewed": true
+    },
+    {
+      "queryId": "hq04",
+      "classification": "answerable",
+      "answerEntryIds": ["h07"],
+      "reviewed": true
+    },
+    {
+      "queryId": "hq05",
+      "classification": "answerable",
+      "answerEntryIds": ["h09"],
+      "reviewed": true
+    },
+    {
+      "queryId": "hq06",
+      "classification": "answerable",
+      "answerEntryIds": ["h11"],
+      "reviewed": true
+    },
+    {
+      "queryId": "hq07",
+      "classification": "answerable",
+      "answerEntryIds": ["h13"],
+      "reviewed": true
+    },
+    {
+      "queryId": "hq08",
+      "classification": "answerable",
+      "answerEntryIds": ["h15"],
+      "reviewed": true
+    },
+    {
+      "queryId": "hq09",
+      "classification": "answerable",
+      "answerEntryIds": ["h17"],
+      "reviewed": true
+    },
+    {
+      "queryId": "hq10",
+      "classification": "answerable",
+      "answerEntryIds": ["h19"],
+      "reviewed": true
+    },
+    {
+      "queryId": "hq11",
+      "classification": "answerable",
+      "answerEntryIds": ["h26"],
+      "reviewed": true
+    },
+    {
+      "queryId": "hq12",
+      "classification": "answerable",
+      "answerEntryIds": ["h27"],
+      "reviewed": true
+    },
+    { "queryId": "hq13", "classification": "no-answer", "reviewed": true },
+    { "queryId": "hq14", "classification": "no-answer", "reviewed": true },
+    { "queryId": "hq15", "classification": "no-answer", "reviewed": true },
+    { "queryId": "hq16", "classification": "no-answer", "reviewed": true }
+  ]
+}

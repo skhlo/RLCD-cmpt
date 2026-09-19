@@ -41,7 +41,10 @@ function inlineChangelog() {
 }
 
 export default defineConfig({
-  entry: ["index.ts"],
+  entry: {
+    index: "index.ts",
+    "replay-evaluator": "src/evaluation/replay-cli.ts",
+  },
   format: ["esm"],
   outDir: "dist",
   bundle: true,

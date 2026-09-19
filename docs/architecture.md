@@ -35,7 +35,7 @@ Five architectural pillars define the extension:
 
 ## Module map
 
-The codebase is organized into VCC core pipeline (`src/core/`, `src/extract/`), observational memory (`src/om/`), commands (`src/commands/`), tools (`src/tools/`), and hooks (`src/hooks/`).
+The codebase is organized into VCC core pipeline (`src/core/`, `src/extract/`), observational memory (`src/om/`), commands (`src/commands/`), tools (`src/tools/`), hooks (`src/hooks/`), and offline evaluation tooling (`src/evaluation/`).
 
 ```
 index.ts                      # Entry point — registers hooks/commands/tools, provider stream bridge
@@ -106,7 +106,19 @@ src/
     vcc-recall.ts             # /blackhole-recall command
   tools/
     recall.ts                 # Unified recall tool
+  evaluation/
+    replay-fixture.ts         # Explicit fixture reader + reviewed-truth validation
+    lexical-replay.ts         # Existing-search baseline metrics + reproducible report
+    replay-cli.ts             # Credential-free offline CLI
 ```
+
+## Offline evaluation boundary
+
+The lexical replay evaluator is a separate development entry point. It accepts
+only explicitly named synthetic fixture files and reuses `loadAllMessages`,
+`planSearchQuery`, and `searchEntriesDetailedWithPlan`; it does not register any
+Pi hook, command, tool, setting, or network transport. Its report is not runtime
+recall output. See [[replay-evaluator]].
 
 ## Data flow
 

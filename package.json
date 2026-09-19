@@ -45,6 +45,7 @@
     "format:check": "oxfmt . --check && oxfmt scripts --check",
     "test": "vitest run",
     "test:watch": "vitest",
+    "replay:lexical": "tsup --silent && node dist/replay-evaluator.js",
     "check": "pnpm typecheck && pnpm lint && pnpm fmt:check",
     "prepare": "node scripts/prepare.mjs",
     "fmt": "oxfmt .",

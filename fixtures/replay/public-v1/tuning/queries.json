@@ -1,0 +1,31 @@
+{
+  "schemaVersion": 1,
+  "fixtureRevision": "public-synthetic-v1",
+  "partition": "tuning",
+  "queries": [
+    {
+      "id": "tq01",
+      "text": "SQLite checkpoint cache offline reason",
+      "category": "decision-reason"
+    },
+    { "id": "tq02", "text": "telemetry port 4318 correction", "category": "correction" },
+    { "id": "tq03", "text": "regenerate frozen snapshots command", "category": "command" },
+    { "id": "tq04", "text": "migration checksum mismatch exact error", "category": "error" },
+    { "id": "tq05", "text": "append-only JSONL audit log reason", "category": "decision-reason" },
+    { "id": "tq06", "text": "retry limit three superseding five", "category": "supersession" },
+    { "id": "tq07", "text": "pnpm parser targeted test command", "category": "command" },
+    { "id": "tq08", "text": "EADDRINUSE 4567 preview server error", "category": "error" },
+    {
+      "id": "tq09",
+      "text": "avoid Redis offline credentials reason",
+      "category": "decision-reason"
+    },
+    { "id": "tq10", "text": "readyz healthz endpoint correction", "category": "correction" },
+    { "id": "tq11", "text": "shared deploy token marker", "category": "term-overlap-distractor" },
+    { "id": "tq12", "text": "reason durable spool", "category": "lexical-candidate-miss" },
+    { "id": "tq13", "text": "quartz migration owner", "category": "no-answer" },
+    { "id": "tq14", "text": "ultraviolet marzipan credential", "category": "no-answer" },
+    { "id": "tq15", "text": "lunar database panic error", "category": "no-answer" },
+    { "id": "tq16", "text": "tungsten narwhal vendor", "category": "no-answer" }
+  ]
+}

@@ -1,5 +1,9 @@
 ## [Unreleased]
 
+### Added
+
+- **Deterministic offline lexical replay evaluator.** A credential-free CLI runs the existing shared recall query planner, session loader, and BM25+ search over explicit versioned fixtures. Public synthetic tuning and held-out partitions cover reviewed answers, no-answer cases, distractors, corrections, commands, and errors. Reports keep invalid truth visible, separate candidate misses from rank misses, use known-answer denominators, and include input digests plus frozen ranking parameters for reproducibility. This development tool does not add Jev, runtime reranking, settings, or recall-output changes.
+
 ### Fixed
 
 - **Pi peer-floor type compatibility.** Settings modal factories now use the host coding-agent's `KeybindingsManager` type rather than the direct TUI dependency's type. This preserves compatibility when Pi 0.84.3 resolves a separate transitive TUI version. The import correction changes no runtime statements; the existing minimum-supported CI check covers the regression.
