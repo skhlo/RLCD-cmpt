@@ -138,7 +138,7 @@
       "path": "src/core/search-entries.ts",
       "ours": "src/core/search-entries.ts",
       "status": "MODIFIED",
-      "_note": "Added shared parser-owned query plans and exported frozen defaults for offline replay while preserving upstream search behavior."
+      "_note": "Added shared parser-owned query plans and exported the owner-supplied ranking configuration for offline replay while preserving upstream search behavior."
     },
     {
       "upstream": "pi-vcc",

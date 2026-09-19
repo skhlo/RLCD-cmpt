@@ -89,7 +89,8 @@ Stopwords removed from query terms before scoring. Each term is classified indiv
 The development-only [replay evaluator](replay-evaluator.md) runs this same query
 planner, session loader, and lexical search against explicit synthetic fixtures.
 It measures candidate coverage and lexical rank without changing either recall
-surface. It performs no Jev call or runtime reranking.
+surface. Its synthetic metrics verify evaluator mechanics rather than retrieval
+quality. It performs no Jev call or runtime reranking.
 
 ## OM coupling
 

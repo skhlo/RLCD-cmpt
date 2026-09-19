@@ -16,8 +16,13 @@ const publicPaths = (partition: ReplayPartition): ReplayInputPaths => {
   };
 };
 
+const TEST_IMPLEMENTATION = {
+  provenance: "executable-sha256",
+  executableSha256: "0".repeat(64),
+} as const;
+
 const publicReport = (partition: ReplayPartition) =>
-  evaluateLexicalReplay(readReplayFixture(publicPaths(partition), partition));
+  evaluateLexicalReplay(readReplayFixture(publicPaths(partition), partition), TEST_IMPLEMENTATION);
 
 describe("public lexical replay fixtures", () => {
   it("keeps the tuning partition valid with frozen baseline counts", () => {
@@ -36,6 +41,16 @@ describe("public lexical replay fixtures", () => {
     });
   });
 
+  it("uses uniquely evidenced rank-miss labels in the tuning partition", () => {
+    const report = publicReport("tuning");
+    expect(report.cases.find((caseReport) => caseReport.queryId === "tq11")).toMatchObject({
+      query: "which keychain owns the shared deploy token marker",
+      outcome: "rank-miss",
+      knownAnswerEntryIds: ["t26"],
+      bestKnownAnswerRank: 6,
+    });
+  });
+
   it("keeps the held-out partition valid with frozen baseline counts", () => {
     expect(publicReport("held-out")).toMatchObject({
       validation: { valid: true, reviewRequired: false, issues: [] },
@@ -49,6 +64,16 @@ describe("public lexical replay fixtures", () => {
         answerAt5: { hits: 10, denominator: 12, rate: 0.833333 },
         meanReciprocalRank: { sum: 9.666667, denominator: 12, value: 0.805556 },
       },
+    });
+  });
+
+  it("uses uniquely evidenced rank-miss labels in the held-out partition", () => {
+    const report = publicReport("held-out");
+    expect(report.cases.find((caseReport) => caseReport.queryId === "hq11")).toMatchObject({
+      query: "which environment owns the shared feature omega marker",
+      outcome: "rank-miss",
+      knownAnswerEntryIds: ["h26"],
+      bestKnownAnswerRank: 6,
     });
   });
 

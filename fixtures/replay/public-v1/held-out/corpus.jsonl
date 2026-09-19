@@ -19,12 +19,12 @@
 {"type":"message","id":"h18","message":{"role":"user","content":"WebSockets remain suitable for a different direct-connect dashboard."}}
 {"type":"message","id":"h19","message":{"role":"assistant","content":[{"type":"text","text":"Correction: use the dry-run flag for previews and the apply flag only after approval."}]}}
 {"type":"message","id":"h20","message":{"role":"user","content":"An old example applied changes while describing a preview."}}
-{"type":"message","id":"h21","message":{"role":"user","content":"shared feature omega marker"}}
-{"type":"message","id":"h22","message":{"role":"user","content":"shared feature omega marker"}}
-{"type":"message","id":"h23","message":{"role":"user","content":"shared feature omega marker"}}
-{"type":"message","id":"h24","message":{"role":"user","content":"shared feature omega marker"}}
-{"type":"message","id":"h25","message":{"role":"user","content":"shared feature omega marker"}}
-{"type":"message","id":"h26","message":{"role":"user","content":"shared feature omega marker: canary environment only."}}
+{"type":"message","id":"h21","message":{"role":"user","content":"The assignment audit asks which environment owns the shared feature omega marker, but the shared feature omega marker has no recorded environment."}}
+{"type":"message","id":"h22","message":{"role":"user","content":"The rollout checklist asks which environment owns the shared feature omega marker, but the shared feature omega marker environment remains unassigned."}}
+{"type":"message","id":"h23","message":{"role":"user","content":"The unresolved ticket asks which environment owns the shared feature omega marker; it repeats the shared feature omega marker but names no environment."}}
+{"type":"message","id":"h24","message":{"role":"user","content":"The review agenda asks which environment owns the shared feature omega marker, while the shared feature omega marker destination remains undecided."}}
+{"type":"message","id":"h25","message":{"role":"user","content":"The migration note asks which environment owns the shared feature omega marker, but says the shared feature omega marker environment is unknown."}}
+{"type":"message","id":"h26","message":{"role":"user","content":"After the assignment review completed, the canary environment was recorded as the environment that owns the shared feature omega marker."}}
 {"type":"message","id":"h27","message":{"role":"assistant","content":[{"type":"text","text":"We chose periodic file snapshots because they permit recovery without a running coordinator."}]}}
 {"type":"message","id":"h28","message":{"role":"user","content":"The cobalt rotation checklist mentions ownership but does not assign an owner."}}
 {"type":"message","id":"h29","message":{"role":"assistant","content":[{"type":"text","text":"Solar index planning is fictional overlap text and records no exception."}]}}

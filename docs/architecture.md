@@ -118,7 +118,8 @@ The lexical replay evaluator is a separate development entry point. It accepts
 only explicitly named synthetic fixture files and reuses `loadAllMessages`,
 `planSearchQuery`, and `searchEntriesDetailedWithPlan`; it does not register any
 Pi hook, command, tool, setting, or network transport. Its report is not runtime
-recall output. See [[replay-evaluator]].
+recall output, and synthetic report metrics are mechanics checks rather than
+retrieval-quality evidence. See [[replay-evaluator]].
 
 ## Data flow
 

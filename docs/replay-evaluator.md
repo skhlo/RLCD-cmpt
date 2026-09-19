@@ -62,10 +62,12 @@ partition metadata must agree. Queries and truth are versioned JSON documents:
 
 Truth is never inferred from retrieved candidates. Each query needs exactly one
 reviewed `answerable` or `no-answer` label. Missing labels, duplicate labels,
-explicit `ambiguous` labels, no-answer labels with answer IDs, unreviewed labels,
-and answer IDs absent from the corpus produce visible invalid cases requiring
-review. Invalid cases are excluded from quality denominators, and the CLI exits
-with status 2 after emitting the report.
+explicit `ambiguous` labels, unreviewed labels, and answer IDs absent from the
+corpus produce visible invalid cases requiring review. A `no-answer` label must
+omit `answerEntryIds` entirely; any supplied value, including an empty array or a
+malformed scalar, is contradictory and remains visibly invalid. Invalid cases are
+excluded from quality denominators, and the CLI exits with status 2 after
+emitting the report.
 
 ## Report contract
 
@@ -77,7 +79,8 @@ The evaluator calls the shared query planner, session loader, and unchanged
 - **Answer@5** - answerable queries whose first reviewed answer ranks in the first
   five, using the same denominator. Candidate misses count as zero.
 - **Mean reciprocal rank** - reciprocal rank of the first reviewed answer, using
-  the same denominator. Candidate misses contribute zero.
+  the same denominator. Candidate misses contribute zero. The evaluator averages
+  unrounded reciprocal ranks and rounds only the displayed aggregate values.
 - **Candidate misses** - answers excluded by lexical matching, the relative floor,
   or the 50-candidate cap. These are separate from rank misses.
 - **Rank misses** - reviewed answers present in the shortlist but below rank five.
@@ -85,9 +88,13 @@ The evaluator calls the shared query planner, session loader, and unchanged
   Retrieved overlap candidates are not relabeled as answers.
 
 Every JSON report is also the reproducibility manifest. It records fixture
-revision and partition, SHA-256 digests for all three inputs, the frozen ranking
-configuration, aggregate results, and ordered per-case candidate IDs. It omits
-wall-clock timestamps, so the same input bytes and evaluator revision produce the
+revision and partition, SHA-256 digests for all three inputs, aggregate results,
+and ordered per-case candidate IDs. Ranking provenance comes directly from the
+lexical search owner and includes the BM25+ K1, B, and delta constants, relative
+floor and minimum term count, and candidate cap. Implementation provenance is the
+SHA-256 digest of the exact built CLI executable; it is computed from the running
+module and does not depend on Git or the caller's working directory. The report
+omits wall-clock timestamps, so the same input bytes and executable produce the
 same report bytes. To verify:
 
 ```sh
@@ -98,6 +105,12 @@ diff -u /tmp/lexical-tuning.json /tmp/run-2.json
 The committed public corpus has 32 synthetic queries split into distinct tuning
 and held-out partitions. It covers decisions with reasons, corrections and
 supersession, exact commands, exact errors, plausible term-overlap distractors,
-known answers, candidate misses, rank misses, and explicit no-answer cases. Freeze
-any future semantic-ranking choices on tuning data before opening a held-out run;
-this lexical evaluator itself performs no tuning or semantic comparison.
+known answers, candidate misses, rank misses, and explicit no-answer cases. Rank
+misses use passages where only the labeled entry states the requested owner; the
+higher-ranked overlap passages explicitly say that no owner is recorded.
+
+These deliberately constructed reports test evaluator mechanics only. Their
+metrics are not evidence of lexical retrieval quality, semantic-ranking quality,
+or performance on real sessions. Freeze any future semantic-ranking choices on
+tuning data before opening a held-out run; this evaluator itself performs no
+tuning or semantic comparison.

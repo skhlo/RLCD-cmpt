@@ -16,7 +16,8 @@ completed RLCD-cmpt features. The inherited package name remains `pi-blackhole`.
 The credential-free evaluator runs the unchanged lexical recall planner, loader,
 and search over explicit synthetic fixtures. It reports candidate coverage,
 answer@5, mean reciprocal rank, candidate misses, rank misses, invalid truth, and
-no-answer behavior without changing Pi runtime behavior.
+no-answer behavior without changing Pi runtime behavior. The committed synthetic
+reports exercise evaluator mechanics only; they are not retrieval-quality claims.
 
 ```sh
 pnpm --silent replay:lexical -- \

@@ -59,7 +59,6 @@ export interface ReplayValidationIssue {
 export interface ReplayFixture {
   readonly revision: string;
   readonly partition: ReplayPartition;
-  readonly paths: ReplayInputPaths;
   readonly digests: Readonly<Record<keyof ReplayInputPaths, string>>;
   readonly rendered: RenderedEntry[];
   readonly rawMessages: Message[];
@@ -227,7 +226,7 @@ const validateTruthRecord = (
       }
     }
   } else if (raw.classification === "no-answer") {
-    if (Array.isArray(raw.answerEntryIds) && raw.answerEntryIds.length > 0) {
+    if (Object.hasOwn(raw, "answerEntryIds")) {
       issues.push(
         issue("contradictory-label", queryId, "No-answer label also supplies answerEntryIds"),
       );
@@ -243,7 +242,7 @@ const validateTruthRecord = (
   return { classification: "invalid", issues };
 };
 
-const sha256 = (path: string): string =>
+export const sha256File = (path: string): string =>
   createHash("sha256").update(readFileSync(path)).digest("hex");
 
 export const readReplayFixture = (
@@ -338,11 +337,10 @@ export const readReplayFixture = (
   return {
     revision: queriesMetadata.revision,
     partition: queriesMetadata.partition,
-    paths,
     digests: {
-      corpus: sha256(paths.corpus),
-      queries: sha256(paths.queries),
-      truth: sha256(paths.truth),
+      corpus: sha256File(paths.corpus),
+      queries: sha256File(paths.queries),
+      truth: sha256File(paths.truth),
     },
     rendered: loaded.rendered,
     rawMessages: loaded.rawMessages,

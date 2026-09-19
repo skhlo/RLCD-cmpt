@@ -19,12 +19,12 @@
 {"type":"message","id":"t18","message":{"role":"user","content":"Redis credentials are available in production, but production is outside this evaluator."}}
 {"type":"message","id":"t19","message":{"role":"assistant","content":[{"type":"text","text":"Correction: the readiness endpoint is /readyz; /healthz remains the liveness endpoint."}]}}
 {"type":"message","id":"t20","message":{"role":"user","content":"The healthz endpoint returned success during a liveness check."}}
-{"type":"message","id":"t21","message":{"role":"user","content":"shared deploy token marker"}}
-{"type":"message","id":"t22","message":{"role":"user","content":"shared deploy token marker"}}
-{"type":"message","id":"t23","message":{"role":"user","content":"shared deploy token marker"}}
-{"type":"message","id":"t24","message":{"role":"user","content":"shared deploy token marker"}}
-{"type":"message","id":"t25","message":{"role":"user","content":"shared deploy token marker"}}
-{"type":"message","id":"t26","message":{"role":"user","content":"shared deploy token marker: release keychain."}}
+{"type":"message","id":"t21","message":{"role":"user","content":"The ownership audit asks which keychain owns the shared deploy token marker, but the shared deploy token marker has no recorded keychain owner."}}
+{"type":"message","id":"t22","message":{"role":"user","content":"The release checklist asks which keychain owns the shared deploy token marker, but the shared deploy token marker still has no assigned keychain."}}
+{"type":"message","id":"t23","message":{"role":"user","content":"The unresolved ticket asks which keychain owns the shared deploy token marker; it repeats the shared deploy token marker but names no keychain."}}
+{"type":"message","id":"t24","message":{"role":"user","content":"The review agenda asks which keychain owns the shared deploy token marker, while the shared deploy token marker owner remains undecided."}}
+{"type":"message","id":"t25","message":{"role":"user","content":"The migration note asks which keychain owns the shared deploy token marker, but says the shared deploy token marker keychain is unknown."}}
+{"type":"message","id":"t26","message":{"role":"user","content":"After the ownership review completed, the release keychain was recorded as the keychain that owns the shared deploy token marker."}}
 {"type":"message","id":"t27","message":{"role":"assistant","content":[{"type":"text","text":"We selected a disk queue because it survives process restarts."}]}}
 {"type":"message","id":"t28","message":{"role":"user","content":"The quartz migration checklist has no assigned owner yet."}}
 {"type":"message","id":"t29","message":{"role":"assistant","content":[{"type":"text","text":"Lunar database planning is a fictional distractor and records no failure."}]}}

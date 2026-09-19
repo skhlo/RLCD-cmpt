@@ -1,5 +1,6 @@
 import {
   DEFAULT_SEARCH_TUNING,
+  SEARCH_RANKING_CONFIGURATION,
   planSearchQuery,
   searchEntriesDetailedWithPlan,
 } from "../core/search-entries.js";
@@ -56,9 +57,15 @@ export type ReplayCaseReport =
   | AnswerableReplayCaseReport
   | NoAnswerReplayCaseReport;
 
+export interface ReplayImplementationProvenance {
+  readonly provenance: "executable-sha256";
+  readonly executableSha256: string;
+}
+
 export interface LexicalReplayReport {
   readonly manifestVersion: 1;
   readonly evaluator: "lexical-replay-v1";
+  readonly implementation: ReplayImplementationProvenance;
   readonly fixture: {
     readonly revision: string;
     readonly partition: ReplayFixture["partition"];
@@ -67,11 +74,7 @@ export interface LexicalReplayReport {
   readonly parameters: {
     readonly mode: "hybrid";
     readonly answerAtK: 5;
-    readonly ranking: {
-      readonly algorithm: "existing-bm25-plus";
-      readonly relativeFloor: number;
-      readonly candidateCap: number;
-    };
+    readonly ranking: typeof SEARCH_RANKING_CONFIGURATION;
   };
   readonly validation: {
     readonly valid: boolean;
@@ -203,7 +206,10 @@ const evaluateCase = (fixture: ReplayFixture, fixtureCase: ReplayFixtureCase): R
   };
 };
 
-export const evaluateLexicalReplay = (fixture: ReplayFixture): LexicalReplayReport => {
+export const evaluateLexicalReplay = (
+  fixture: ReplayFixture,
+  implementation: ReplayImplementationProvenance,
+): LexicalReplayReport => {
   const cases = fixture.cases.map((fixtureCase) => evaluateCase(fixture, fixtureCase));
   const caseIssues = cases.flatMap((caseReport) =>
     caseReport.outcome === "invalid" ? caseReport.issues : [],
@@ -225,13 +231,16 @@ export const evaluateLexicalReplay = (fixture: ReplayFixture): LexicalReplayRepo
   const firstPageHits = answerable.filter(
     (caseReport) => caseReport.outcome === "answer-at-5",
   ).length;
-  const reciprocalRankSum = roundMetric(
-    answerable.reduce((sum, caseReport) => sum + caseReport.reciprocalRank, 0),
+  const reciprocalRankSum = answerable.reduce(
+    (sum, caseReport) =>
+      sum + (caseReport.bestKnownAnswerRank === null ? 0 : 1 / caseReport.bestKnownAnswerRank),
+    0,
   );
 
   return {
     manifestVersion: 1,
     evaluator: "lexical-replay-v1",
+    implementation,
     fixture: {
       revision: fixture.revision,
       partition: fixture.partition,
@@ -240,11 +249,7 @@ export const evaluateLexicalReplay = (fixture: ReplayFixture): LexicalReplayRepo
     parameters: {
       mode: "hybrid",
       answerAtK: ANSWER_AT_K,
-      ranking: {
-        algorithm: "existing-bm25-plus",
-        relativeFloor: DEFAULT_SEARCH_TUNING.relativeFloor,
-        candidateCap: DEFAULT_SEARCH_TUNING.cap,
-      },
+      ranking: SEARCH_RANKING_CONFIGURATION,
     },
     validation: {
       valid: validationIssues.length === 0,
@@ -270,7 +275,7 @@ export const evaluateLexicalReplay = (fixture: ReplayFixture): LexicalReplayRepo
       candidateCoverage: ratioMetric(candidateHits, answerable.length),
       answerAt5: ratioMetric(firstPageHits, answerable.length),
       meanReciprocalRank: {
-        sum: reciprocalRankSum,
+        sum: roundMetric(reciprocalRankSum),
         denominator: answerable.length,
         value: answerable.length === 0 ? null : roundMetric(reciprocalRankSum / answerable.length),
       },

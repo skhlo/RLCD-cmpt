@@ -21,7 +21,11 @@
       "category": "decision-reason"
     },
     { "id": "tq10", "text": "readyz healthz endpoint correction", "category": "correction" },
-    { "id": "tq11", "text": "shared deploy token marker", "category": "term-overlap-distractor" },
+    {
+      "id": "tq11",
+      "text": "which keychain owns the shared deploy token marker",
+      "category": "term-overlap-distractor"
+    },
     { "id": "tq12", "text": "reason durable spool", "category": "lexical-candidate-miss" },
     { "id": "tq13", "text": "quartz migration owner", "category": "no-answer" },
     { "id": "tq14", "text": "ultraviolet marzipan credential", "category": "no-answer" },

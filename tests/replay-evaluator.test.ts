@@ -54,6 +54,19 @@ const noAnswer = (queryId: string): Record<string, unknown> => ({
   reviewed: true,
 });
 
+const rankMissMessages = (prefix: string): readonly Record<string, unknown>[] => [
+  ...Array.from({ length: 5 }, (_, index) =>
+    messageEntry(
+      `${prefix}-distractor-${index + 1}`,
+      "The amber release marker owner review asks which team owns the amber release marker, but records no owning team.",
+    ),
+  ),
+  messageEntry(
+    `${prefix}-answer`,
+    "The completed ownership record says Team Sable owns the amber release marker for production releases.",
+  ),
+];
+
 const writeFixture = (options: FixtureOptions): FixtureFiles => {
   const dir = mkdtempSync(join(tmpdir(), "blackhole-replay-"));
   const paths = {
@@ -103,12 +116,246 @@ const writeFixture = (options: FixtureOptions): FixtureFiles => {
   return { dir, paths, partition };
 };
 
+const TEST_IMPLEMENTATION = {
+  provenance: "executable-sha256",
+  executableSha256: "0".repeat(64),
+} as const;
+
 const reportFixture = (files: FixtureFiles) =>
-  evaluateLexicalReplay(readReplayFixture(files.paths, files.partition));
+  evaluateLexicalReplay(readReplayFixture(files.paths, files.partition), TEST_IMPLEMENTATION);
 
 const cleanup = (files: FixtureFiles): void => {
-  rmSync(files.dir, { recursive: true, force: true });
+  rmSync(files.dir, { recursive: true });
 };
+
+const writeMinimalFixture = (): FixtureFiles =>
+  writeFixture({
+    messages: [messageEntry("m1", "known answer")],
+    queries: [{ id: "q1", text: "known answer" }],
+    labels: [answerable("q1", ["m1"])],
+  });
+
+const writeJson = (path: string, document: unknown): void => {
+  writeFileSync(path, `${JSON.stringify(document)}\n`);
+};
+
+const validQueriesDocument = (queries: unknown): Record<string, unknown> => ({
+  schemaVersion: 1,
+  fixtureRevision: "test-v1",
+  partition: "tuning",
+  queries,
+});
+
+const validTruthDocument = (labels: unknown): Record<string, unknown> => ({
+  schemaVersion: 1,
+  fixtureRevision: "test-v1",
+  partition: "tuning",
+  labels,
+});
+
+describe("replay fixture structure validation", () => {
+  it.each([
+    ["malformed JSON", "{", /Cannot parse queries file/],
+    ["a non-object JSON value", "[]", /queries file .* must contain one JSON object/],
+  ])("rejects a queries file containing %s", (_caseName, contents, expected) => {
+    const files = writeMinimalFixture();
+    try {
+      writeFileSync(files.paths.queries, contents);
+      expect(() => readReplayFixture(files.paths, files.partition)).toThrowError(expected);
+    } finally {
+      cleanup(files);
+    }
+  });
+
+  it.each([
+    ["an unsupported schema", { schemaVersion: 2 }, /schemaVersion .* must be 1/],
+    ["an empty fixture revision", { fixtureRevision: "" }, /fixtureRevision .* non-empty/],
+    ["an invalid partition", { partition: "private" }, /partition .* must be tuning or held-out/],
+    ["a mismatched partition", { partition: "held-out" }, /Partition mismatch/],
+  ])("rejects query metadata with %s", (_caseName, override, expected) => {
+    const files = writeMinimalFixture();
+    try {
+      writeJson(files.paths.queries, {
+        ...validQueriesDocument([{ id: "q1", text: "known answer", category: "test" }]),
+        ...override,
+      });
+      expect(() => readReplayFixture(files.paths, files.partition)).toThrowError(expected);
+    } finally {
+      cleanup(files);
+    }
+  });
+
+  it.each([
+    ["an empty corpus", "\n", /Corpus .* is empty/],
+    ["malformed JSON metadata", "{\n", /Cannot parse corpus metadata/],
+    ["non-object metadata", "[]\n", /must be fixture session metadata/],
+    [
+      "a non-session first record",
+      `${JSON.stringify({ type: "message", id: "m0", message: { role: "user", content: "x" } })}\n`,
+      /must be fixture session metadata/,
+    ],
+  ])("rejects %s", (_caseName, contents, expected) => {
+    const files = writeMinimalFixture();
+    try {
+      writeFileSync(files.paths.corpus, contents);
+      expect(() => readReplayFixture(files.paths, files.partition)).toThrowError(expected);
+    } finally {
+      cleanup(files);
+    }
+  });
+
+  it("rejects a non-array query collection", () => {
+    const files = writeMinimalFixture();
+    try {
+      writeJson(files.paths.queries, validQueriesDocument({}));
+      expect(() => readReplayFixture(files.paths, files.partition)).toThrowError(
+        /queries .* must be an array/,
+      );
+    } finally {
+      cleanup(files);
+    }
+  });
+
+  it("rejects a malformed query record", () => {
+    const files = writeMinimalFixture();
+    try {
+      writeJson(files.paths.queries, validQueriesDocument([null]));
+      expect(() => readReplayFixture(files.paths, files.partition)).toThrowError(
+        /queries\[0\].* must be an object/,
+      );
+    } finally {
+      cleanup(files);
+    }
+  });
+
+  it.each([
+    ["id", { id: "", text: "known answer", category: "test" }, /queries\[0\].id .* non-empty/],
+    ["text", { id: "q1", text: "", category: "test" }, /queries\[0\].text .* non-empty/],
+    [
+      "category",
+      { id: "q1", text: "known answer", category: "" },
+      /queries\[0\].category .* non-empty/,
+    ],
+  ])("rejects an invalid query %s", (_field, query, expected) => {
+    const files = writeMinimalFixture();
+    try {
+      writeJson(files.paths.queries, validQueriesDocument([query]));
+      expect(() => readReplayFixture(files.paths, files.partition)).toThrowError(expected);
+    } finally {
+      cleanup(files);
+    }
+  });
+
+  it("rejects duplicate query ids", () => {
+    const files = writeMinimalFixture();
+    try {
+      writeJson(
+        files.paths.queries,
+        validQueriesDocument([
+          { id: "q1", text: "first query", category: "test" },
+          { id: "q1", text: "second query", category: "test" },
+        ]),
+      );
+      expect(() => readReplayFixture(files.paths, files.partition)).toThrowError(
+        /Duplicate query id "q1"/,
+      );
+    } finally {
+      cleanup(files);
+    }
+  });
+
+  it("rejects fixture revision mismatches", () => {
+    const files = writeMinimalFixture();
+    try {
+      writeJson(files.paths.truth, {
+        ...validTruthDocument([answerable("q1", ["m1"])]),
+        fixtureRevision: "other-v1",
+      });
+      expect(() => readReplayFixture(files.paths, files.partition)).toThrowError(
+        /Fixture revision mismatch:.*truth is other-v1/,
+      );
+    } finally {
+      cleanup(files);
+    }
+  });
+
+  it.each([
+    [
+      "a missing corpus entry id",
+      [{ type: "message", message: { role: "user", content: "x" } }],
+      /Every message .* must have an entry id/,
+    ],
+    [
+      "a duplicate corpus entry id",
+      [messageEntry("m1", "first"), messageEntry("m1", "second")],
+      /Duplicate corpus entry id "m1"/,
+    ],
+  ])("rejects %s", (_caseName, messages, expected) => {
+    const files = writeFixture({
+      messages,
+      queries: [{ id: "q1", text: "known answer" }],
+      labels: [answerable("q1", ["m1"])],
+    });
+    try {
+      expect(() => readReplayFixture(files.paths, files.partition)).toThrowError(expected);
+    } finally {
+      cleanup(files);
+    }
+  });
+
+  it("rejects a non-array truth-label collection", () => {
+    const files = writeMinimalFixture();
+    try {
+      writeJson(files.paths.truth, validTruthDocument({}));
+      expect(() => readReplayFixture(files.paths, files.partition)).toThrowError(
+        /labels .* must be an array/,
+      );
+    } finally {
+      cleanup(files);
+    }
+  });
+
+  it.each([
+    ["a non-object", null],
+    ["a missing query id", {}],
+    ["an empty query id", { queryId: "" }],
+  ])("keeps %s truth record visible as invalid", (_caseName, label) => {
+    const files = writeFixture({
+      messages: [messageEntry("m1", "known answer")],
+      queries: [{ id: "q1", text: "known answer" }],
+      labels: [label],
+    });
+    try {
+      const report = reportFixture(files);
+      expect(report.validation).toMatchObject({
+        valid: false,
+        reviewRequired: true,
+        issues: expect.arrayContaining([
+          expect.objectContaining({ code: "invalid-truth-record", queryId: null }),
+        ]),
+      });
+    } finally {
+      cleanup(files);
+    }
+  });
+
+  it("keeps an orphan truth record visible as invalid", () => {
+    const files = writeFixture({
+      messages: [messageEntry("m1", "known answer")],
+      queries: [{ id: "q1", text: "known answer" }],
+      labels: [answerable("orphan", ["m1"])],
+    });
+    try {
+      expect(reportFixture(files).validation.issues).toEqual(
+        expect.arrayContaining([
+          { code: "orphan-label", queryId: "orphan", detail: expect.any(String) },
+        ]),
+      );
+    } finally {
+      cleanup(files);
+    }
+  });
+});
 
 describe("replay truth validation", () => {
   it("marks a missing truth label invalid instead of inferring one", () => {
@@ -129,7 +376,12 @@ describe("replay truth validation", () => {
     }
   });
 
-  it("marks a no-answer label with answer evidence as contradictory", () => {
+  it.each([
+    ["a populated array", ["m1"]],
+    ["an empty array", []],
+    ["a string", "m1"],
+    ["null", null],
+  ])("marks a no-answer label with %s answerEntryIds as contradictory", (_caseName, value) => {
     const files = writeFixture({
       messages: [messageEntry("m1", "known answer")],
       queries: [{ id: "q1", text: "known answer" }],
@@ -137,7 +389,7 @@ describe("replay truth validation", () => {
         {
           queryId: "q1",
           classification: "no-answer",
-          answerEntryIds: ["m1"],
+          answerEntryIds: value,
           reviewed: true,
         },
       ],
@@ -187,11 +439,24 @@ describe("replay truth validation", () => {
     }
   });
 
-  it("marks an answerable label without evidence invalid", () => {
+  it.each([
+    ["a non-array value", "m1"],
+    ["an empty array", []],
+    ["a non-string id", [123]],
+    ["an empty id", [""]],
+    ["duplicate ids", ["m1", "m1"]],
+  ])("marks answerable evidence with %s invalid", (_caseName, answerEntryIds) => {
     const files = writeFixture({
       messages: [messageEntry("m1", "known answer")],
       queries: [{ id: "q1", text: "known answer" }],
-      labels: [answerable("q1", [])],
+      labels: [
+        {
+          queryId: "q1",
+          classification: "answerable",
+          answerEntryIds,
+          reviewed: true,
+        },
+      ],
     });
     try {
       const report = reportFixture(files);
@@ -257,18 +522,17 @@ describe("replay truth validation", () => {
 });
 
 describe("lexical baseline outcomes", () => {
-  it("reports a known answer below the first page as a rank miss", () => {
+  it("reports a uniquely evidenced answer below the first page as a rank miss", () => {
     const files = writeFixture({
-      messages: Array.from({ length: 6 }, (_, index) =>
-        messageEntry(`m${index + 1}`, "shared needle evidence"),
-      ),
-      queries: [{ id: "q1", text: "shared needle evidence" }],
-      labels: [answerable("q1", ["m6"])],
+      messages: rankMissMessages("q1"),
+      queries: [{ id: "q1", text: "which team owns amber release marker" }],
+      labels: [answerable("q1", ["q1-answer"])],
     });
     try {
       const report = reportFixture(files);
       expect(report.cases[0]).toMatchObject({
         outcome: "rank-miss",
+        knownAnswerEntryIds: ["q1-answer"],
         bestKnownAnswerRank: 6,
         candidateMissReason: null,
       });
@@ -420,6 +684,30 @@ describe("replay metrics and manifest", () => {
     }
   });
 
+  it("calculates aggregate MRR from unrounded reciprocal ranks", () => {
+    const files = writeFixture({
+      messages: [
+        messageEntry("rank-1-answer", "cobalt owner Team Azure"),
+        ...rankMissMessages("rank-6"),
+      ],
+      queries: [
+        { id: "rank-1", text: "cobalt owner Team Azure" },
+        { id: "rank-6", text: "which team owns amber release marker" },
+      ],
+      labels: [answerable("rank-1", ["rank-1-answer"]), answerable("rank-6", ["rank-6-answer"])],
+    });
+    try {
+      const report = reportFixture(files);
+      expect(report.aggregate.meanReciprocalRank).toEqual({
+        sum: 1.166667,
+        denominator: 2,
+        value: 0.583333,
+      });
+    } finally {
+      cleanup(files);
+    }
+  });
+
   it("reports null quality rates when there are no known-answer cases", () => {
     const files = writeFixture({
       messages: [messageEntry("mention", "quartz mention")],
@@ -468,8 +756,12 @@ describe("replay metrics and manifest", () => {
           mode: "hybrid",
           answerAtK: 5,
           ranking: {
-            algorithm: "existing-bm25-plus",
+            algorithm: "bm25-plus",
+            bm25K1: 1.2,
+            bm25B: 0.75,
+            bm25Delta: 0.5,
             relativeFloor: 0.2,
+            relativeFloorMinimumTermCount: 2,
             candidateCap: 50,
           },
         },

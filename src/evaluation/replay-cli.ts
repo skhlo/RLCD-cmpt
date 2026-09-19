@@ -1,7 +1,9 @@
 #!/usr/bin/env node
+import { fileURLToPath } from "node:url";
 import {
   ReplayFixtureError,
   readReplayFixture,
+  sha256File,
   type ReplayInputPaths,
   type ReplayPartition,
 } from "./replay-fixture.js";
@@ -58,7 +60,10 @@ const main = (): void => {
   try {
     const options = parseCliOptions(process.argv.slice(2));
     const fixture = readReplayFixture(options.paths, options.partition);
-    const report = evaluateLexicalReplay(fixture);
+    const report = evaluateLexicalReplay(fixture, {
+      provenance: "executable-sha256",
+      executableSha256: sha256File(fileURLToPath(import.meta.url)),
+    });
     process.stdout.write(`${JSON.stringify(report, null, 2)}\n`);
     if (!report.validation.valid) process.exitCode = 2;
   } catch (error) {

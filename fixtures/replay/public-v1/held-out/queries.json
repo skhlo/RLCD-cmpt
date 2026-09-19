@@ -29,7 +29,11 @@
       "category": "decision-reason"
     },
     { "id": "hq10", "text": "dry-run apply preview correction", "category": "correction" },
-    { "id": "hq11", "text": "shared feature omega marker", "category": "term-overlap-distractor" },
+    {
+      "id": "hq11",
+      "text": "which environment owns the shared feature omega marker",
+      "category": "term-overlap-distractor"
+    },
     {
       "id": "hq12",
       "text": "reason resilient checkpoint service",
