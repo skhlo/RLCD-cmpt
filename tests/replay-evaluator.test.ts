@@ -204,6 +204,43 @@ describe("replay fixture structure validation", () => {
     }
   });
 
+  it.each([
+    ["malformed JSON", "{malformed-json", /Cannot parse corpus record 2/],
+    ["a non-object value", "[]", /Corpus record 2 .* must be a message object/],
+    [
+      "a non-message object",
+      JSON.stringify({ type: "branch", id: "branch-entry" }),
+      /Corpus record 2 .* must be a message object/,
+    ],
+    [
+      "a non-string message id",
+      JSON.stringify({ type: "message", id: 2, message: { role: "user", content: "x" } }),
+      /id in corpus record 2 .* must be a non-empty string/,
+    ],
+    [
+      "a non-object message",
+      JSON.stringify({ type: "message", id: "m2", message: null }),
+      /message in corpus record 2 .* must be an object/,
+    ],
+  ])("rejects a corpus record containing %s", (_caseName, record, expected) => {
+    const files = writeMinimalFixture();
+    try {
+      writeFileSync(
+        files.paths.corpus,
+        `${JSON.stringify({
+          type: "session",
+          id: "fixture-tuning",
+          schemaVersion: 1,
+          fixtureRevision: "test-v1",
+          partition: "tuning",
+        })}\n${record}\n`,
+      );
+      expect(() => readReplayFixture(files.paths, files.partition)).toThrowError(expected);
+    } finally {
+      cleanup(files);
+    }
+  });
+
   it("rejects a non-array query collection", () => {
     const files = writeMinimalFixture();
     try {
@@ -283,7 +320,7 @@ describe("replay fixture structure validation", () => {
     [
       "a missing corpus entry id",
       [{ type: "message", message: { role: "user", content: "x" } }],
-      /Every message .* must have an entry id/,
+      /id in corpus record 2 .* must be a non-empty string/,
     ],
     [
       "a duplicate corpus entry id",

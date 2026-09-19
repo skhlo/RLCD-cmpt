@@ -29,6 +29,11 @@ fixture metadata, which the normal session loader ignores as a non-message entry
 {"type":"session","id":"fixture-tuning","schemaVersion":1,"fixtureRevision":"public-synthetic-v1","partition":"tuning"}
 ```
 
+Every subsequent nonblank record must be a JSON object with `type: "message"`, a
+non-empty string `id`, and an object-valued `message`. The fixture reader rejects
+malformed JSONL and unsupported record shapes before the production-tolerant
+session loader can skip them.
+
 The command never discovers other files. Corpus, query, and truth revision and
 partition metadata must agree. Queries and truth are versioned JSON documents:
 

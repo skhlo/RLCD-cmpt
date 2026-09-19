@@ -77,14 +77,14 @@ describe("public lexical replay fixtures", () => {
     });
   });
 
-  it("covers every required synthetic-query category in both partitions", () => {
-    for (const partition of ["tuning", "held-out"] as const) {
+  it.each(["tuning", "held-out"] as const)(
+    "covers every required synthetic-query category in the %s partition",
+    (partition) => {
       const categories = new Set(
         publicReport(partition).cases.map((caseReport) => caseReport.category),
       );
-      expect({ partition, categories: [...categories].sort() }).toMatchObject({
-        partition,
-        categories: expect.arrayContaining([
+      expect([...categories].sort()).toEqual(
+        expect.arrayContaining([
           "command",
           "correction",
           "decision-reason",
@@ -93,7 +93,7 @@ describe("public lexical replay fixtures", () => {
           "supersession",
           "term-overlap-distractor",
         ]),
-      });
-    }
-  });
+      );
+    },
+  );
 });

@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { spawnSync } from "node:child_process";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { appendFileSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { beforeAll, describe, expect, it } from "vitest";
@@ -146,6 +146,22 @@ describe("lexical replay CLI", () => {
           },
         },
       });
+    });
+  });
+
+  it("rejects a malformed corpus record instead of reporting valid input", () => {
+    withCliFixture((fixture) => {
+      appendFileSync(fixture.corpusPath, "{malformed-json\n");
+
+      const result = runCli(fixtureArgs(fixture));
+
+      expect({ status: result.status, stdout: result.stdout, stderr: result.stderr }).toMatchObject(
+        {
+          status: 1,
+          stdout: "",
+          stderr: expect.stringContaining("Cannot parse corpus record 3"),
+        },
+      );
     });
   });
 

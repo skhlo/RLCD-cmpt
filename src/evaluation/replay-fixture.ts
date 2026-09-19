@@ -122,24 +122,49 @@ const readCorpusMetadata = (
   path: string,
   expectedPartition: ReplayPartition,
 ): { revision: string; partition: ReplayPartition } => {
-  const firstLine = readFileSync(path, "utf8")
-    .split("\n")
-    .find((line) => line.trim().length > 0);
-  if (!firstLine) {
-    throw new ReplayFixtureError(`Corpus ${path} is empty`);
+  const lines = readFileSync(path, "utf8").split("\n");
+  const records: unknown[] = [];
+  for (const line of lines) {
+    if (line.trim().length === 0) continue;
+    try {
+      records.push(JSON.parse(line));
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error);
+      const recordNumber = records.length + 1;
+      const recordName = recordNumber === 1 ? "corpus metadata" : `corpus record ${recordNumber}`;
+      throw new ReplayFixtureError(`Cannot parse ${recordName} in ${path}: ${detail}`);
+    }
   }
 
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(firstLine);
-  } catch (error) {
-    const detail = error instanceof Error ? error.message : String(error);
-    throw new ReplayFixtureError(`Cannot parse corpus metadata in ${path}: ${detail}`);
+  const metadata = records[0];
+  if (metadata === undefined) {
+    throw new ReplayFixtureError(`Corpus ${path} is empty`);
   }
-  if (!isRecord(parsed) || parsed.type !== "session") {
+  if (!isRecord(metadata) || metadata.type !== "session") {
     throw new ReplayFixtureError(`First record in ${path} must be fixture session metadata`);
   }
-  return readMetadata(parsed, path, expectedPartition);
+
+  for (let index = 1; index < records.length; index++) {
+    const record = records[index];
+    const recordNumber = index + 1;
+    if (!isRecord(record) || record.type !== "message") {
+      throw new ReplayFixtureError(
+        `Corpus record ${recordNumber} in ${path} must be a message object`,
+      );
+    }
+    if (typeof record.id !== "string" || record.id.length === 0) {
+      throw new ReplayFixtureError(
+        `id in corpus record ${recordNumber} in ${path} must be a non-empty string`,
+      );
+    }
+    if (!isRecord(record.message)) {
+      throw new ReplayFixtureError(
+        `message in corpus record ${recordNumber} in ${path} must be an object`,
+      );
+    }
+  }
+
+  return readMetadata(metadata, path, expectedPartition);
 };
 
 const readQueries = (document: Record<string, unknown>, path: string): readonly ReplayQuery[] => {
